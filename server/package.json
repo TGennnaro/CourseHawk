@@ -1,0 +1,21 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@mtucourses/rate-my-professors": "^2.2.0",
+    "dotenv": "^16.0.3",
+    "node-fetch": "^3.3.1",
+    "pocketbase": "^0.13.1",
+    "puppeteer": "^19.8.2"
+  }
+}
