@@ -52,8 +52,7 @@ async function scrapeProfessors() {
 			.catch(() => {
 				console.log("Page failed to navigate, retrying...");
 				browser.close();
-				scrapeProfessors();
-				res();
+				scrapeProfessors(); // this doesn't work
 			});
 
 		const rows = await page.$$("#MainContent_dgdSearchResult tr");
