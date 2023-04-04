@@ -7,7 +7,7 @@ import ratings from "@mtucourses/rate-my-professors";
 
 const pb = new PocketBase("http://127.0.0.1:8090");
 
-const admin = await pb.admins.authWithPassword(process.env.PB_EMAIL, process.env.PB_PASSWORD);
+// const admin = await pb.admins.authWithPassword(process.env.PB_EMAIL, process.env.PB_PASSWORD);
 
 updateDataset();
 
@@ -24,12 +24,16 @@ async function updateDataset() {
 			difficulty: professor.avgDifficulty || -1,
 			takeAgain: professor.wouldTakeAgainPercent || -1
 		}
-		const records = professor.legacyId ? (
-			await pb.collection("professors").getFullList({ filter: `legacyId = "${professor.legacyId}"` })
-		) : (
-			await pb.collection("professors").getFullList({ filter: `name = "${data.name}"` })
-		);
+		const records = await pb.collection("professors").getFullList({
+			filter: `legacyId = "${professor.legacyId || 0}"
+			|| name = "${data.name}"
+			|| name = "${professor.firstName.substring(0, 1) + ". " + professor.lastName}"
+			|| name = "${professor.lastName}"
+			|| name ~ "${professor.lastName}"` // To match correct record with incorrect professor so we can continue later on
+		});
+		console.log("Updating " + data.name + ",", professor.legacyId)
 		if (records.length > 0) {
+			if (records[0].legacyId > 0 && !professor.legacyId) continue; // If the record is correct but the scraped data is not, don't update
 			await pb.collection("professors").update(records[0].id, data);
 			continue;
 		}
@@ -59,7 +63,7 @@ async function scrapeProfessors() {
 		const professors = new Set();
 		const professorData = [];
 		// for (let i = 1; i < rows.length; i++) {
-		for (let i = 1; i < 20; i++) {
+		for (let i = 1; i < 30; i++) {
 			const row = rows[i];
 			const cells = await row.$$("td");
 			const professor = await page.evaluate(cell => cell.innerHTML, cells[2]);
@@ -93,17 +97,17 @@ async function scrapeProfessors() {
 
 function getProfessorData(name) {
 	const nameSplit = name.split(" ");
-	const firstName = nameSplit[0];
-	const lastName = nameSplit[1];
-	const defaultReturn = { firstName, lastName };
+	const firstName = nameSplit.length > 1 ? nameSplit[0] : null;
+	const lastName = nameSplit[1] || nameSplit[0];
+	const defaultReturn = { firstName: firstName || "", lastName }; // If professor name is just last name, ensure firstName is ""
 	return new Promise(async (res, rej) => {
 		const school = await ratings.default.searchSchool("Monmouth University");
-		const teachers = await ratings.default.searchTeacher(lastName || firstName, school[0].id);
+		const teachers = await ratings.default.searchTeacher(lastName, school[0].id);
 		if (!teachers || teachers.length == 0) return res(defaultReturn);
 		const teacherID = (() => {
 			for (const teacher of teachers) {
 				if (teacher.school.name != "Monmouth University") continue;
-				if (lastName && !teacher.firstName.startsWith(firstName.substring(0, 1))) continue;
+				if (firstName && !teacher.firstName.startsWith(firstName.substring(0, 1))) continue;
 				return teacher;
 			}
 		})();
@@ -113,3 +117,6 @@ function getProfessorData(name) {
 		res(data);
 	});
 }
+
+// const school = await ratings.default.searchSchool("Monmouth University");
+// console.log(await ratings.default.searchTeacher("Holmes", school[0].id))
