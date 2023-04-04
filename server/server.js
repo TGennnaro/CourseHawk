@@ -72,9 +72,9 @@ async function scrapeProfessors() {
 			let names = []; // Array because there may be two professors per class
 			const matches = professor.matchAll(/(.*)<br>(.*)/g);
 			if (matches.length > 0) {
-				names.push(matches[0][1]);
-				if (matches[0][1] != matches[0][2]) {
-					names.push(matches[0][2]);
+				names.push(matches[0][1]); // push name 1
+				if (matches[0][1] != matches[0][2]) { // name 1 does not match name 2
+					names.push(matches[0][2]); // push name 2
 				}
 			} else {
 				names.push(professor);
@@ -107,7 +107,7 @@ function getProfessorData(name) {
 		const teacherID = (() => {
 			for (const teacher of teachers) {
 				if (teacher.school.name != "Monmouth University") continue;
-				if (firstName && !teacher.firstName.startsWith(firstName.substring(0, 1))) continue;
+				if (firstName && !teacher.firstName.startsWith(firstName.substring(0, 1))) continue; // If there's a first name, check that the initials match
 				return teacher;
 			}
 		})();
