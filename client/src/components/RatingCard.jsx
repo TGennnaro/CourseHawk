@@ -1,15 +1,23 @@
 "use client";
 
-import { Button, Card, Modal, Row, Text, useTheme } from "@nextui-org/react";
+import {
+  Button,
+  Card,
+  Link,
+  Modal,
+  Row,
+  Text,
+  useTheme,
+} from "@nextui-org/react";
 import { useState } from "react";
 
 export default function RatingCard({ data }) {
   const { theme } = useTheme();
-  const [visible, setVisible] = useState(false);
+  const [ratingModalVisible, setRatingModalVisible] = useState(false);
 
   return (
     <>
-      <Card isPressable isHoverable onPress={() => setVisible(true)}>
+      <Card isPressable isHoverable onPress={() => setRatingModalVisible(true)}>
         <div className="flex">
           <div
             className="grid place-content-center w-32"
@@ -29,12 +37,25 @@ export default function RatingCard({ data }) {
               {data.department || "N/A"}
             </Text>
           </div>
+          <div className="ml-auto mr-8 self-center">
+            <Link href={"/professor/" + data.id}>
+              <Button
+                color="primary"
+                rounded
+                flat
+                onPress={() => setCourseModalVisible(true)}
+                auto
+              >
+                View Profile
+              </Button>
+            </Link>
+          </div>
         </div>
       </Card>
       <Modal
         closeButton
-        open={visible}
-        onClose={() => setVisible(false)}
+        open={ratingModalVisible}
+        onClose={() => setRatingModalVisible(false)}
         aria-labelledby={data.name}
       >
         <Modal.Header>
@@ -47,7 +68,7 @@ export default function RatingCard({ data }) {
             </Text>
             <Text h5 color="$gray800">
               Based on {Math.max(data.numRatings, 0)} rating
-              {data.numRatings > 1 ? "s" : ""}
+              {data.numRatings != 1 ? "s" : ""}
             </Text>
             <Row justify="space-between" className="mt-4">
               <div>

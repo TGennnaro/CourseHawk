@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import Header from "../../components/Header";
-import SearchBar from "../../components/SearchBar";
-import ResultSet from "../../components/ResultSet";
+import SearchBar from "./SearchBar";
+import ResultSet from "./ResultSet";
 
 export default function Home() {
   const [searchTerm, setSearchTerm] = useState("");
