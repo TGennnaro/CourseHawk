@@ -1,4 +1,4 @@
-import { Pagination, Row, Text } from "@nextui-org/react";
+import { Button, Pagination, Row, Text } from "@nextui-org/react";
 import RatingCard from "../../components/RatingCard";
 import { useEffect, useState } from "react";
 import pb from "../../lib/pocketbase";
@@ -25,7 +25,10 @@ export default function ResultSet({ searchTerm }) {
     <div className="mt-6">
       <Row justify="space-between">
         <Text h3>Results:</Text>
-        <Pagination total={Math.ceil(total)} onChange={(p) => setPage(p)} />
+        <div className="flex gap-4">
+          <Button auto>Filters</Button>
+          <Pagination total={Math.ceil(total)} onChange={(p) => setPage(p)} />
+        </div>
       </Row>
       {results && results.length > 0 ? (
         <ul className="m-0">

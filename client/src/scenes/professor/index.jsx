@@ -53,7 +53,7 @@ export default function ProfessorPage() {
         </div>
         <div className="text-center">
           <Text h1 weight="bold">
-            {professorData?.takeAgain}%
+            {professorData?.takeAgain.toFixed(0)}%
           </Text>
           <Text h4 color="$gray700">
             Would take again
