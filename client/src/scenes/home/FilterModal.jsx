@@ -1,5 +1,5 @@
-import { Checkbox, Modal, Radio, Row, Text } from "@nextui-org/react";
-import React from "react";
+import { Button, Checkbox, Modal, Radio, Row, Text } from "@nextui-org/react";
+import React, { useRef } from "react";
 
 export default function FilterModal({ filters, setFilters, open, onClose }) {
   return (
@@ -42,6 +42,7 @@ export default function FilterModal({ filters, setFilters, open, onClose }) {
         >
           Show unrated professors
         </Checkbox>
+        <Button onPress={() => setFilters({})}>Clear Filters</Button>
       </Modal.Body>
     </Modal>
   );

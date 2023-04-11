@@ -9,7 +9,42 @@ const pb = new PocketBase("http://127.0.0.1:8090");
 
 const admin = await pb.admins.authWithPassword(process.env.PB_EMAIL, process.env.PB_PASSWORD);
 
-scrapeWebData();
+// scrapeWebData();
+
+// console.log(await matchProfessor("C. Yu")); // Works
+// console.log(await matchProfessor("M. Yu")); // Works
+console.log(await matchProfessor("E. Walsh", "AN-103"));
+
+async function matchProfessor(initials) {
+	const browser = await puppeteer.launch();
+	const page = await browser.newPage();
+	const searchQuery = initials.replace(". ", "+");
+	await page.goto(`https://www.monmouth.edu/directory?s=${searchQuery}`);
+
+	const rawResults = await page.$$(".person-name > a");
+	const results = await Promise.all(rawResults.map(async result => {
+		const name = await page.evaluate(el => el.textContent, result);
+		const link = await page.evaluate(el => el.href, result);
+		return { name: name.split(",")[0], link };
+	}));
+	const filtered = results.filter(result => {
+		const initialName = initials.replace(".", "").split(" ");
+		const resultName = result.name.split(" ");
+		if (initialName[1] != resultName[1]) return false;
+		if (!resultName[0].startsWith(initialName[0])) return false;
+		return true;
+	});
+
+	if (filtered.length > 1) {
+		for (const result of filtered) {
+			await page.goto(result.link);
+			const blocks = await page.$$(".wp-block-column");
+		}
+	} else {
+		browser.close();
+		return filtered[0] || null;
+	}
+}
 
 async function scrapeWebData() {
 	return new Promise(async (res, rej) => {

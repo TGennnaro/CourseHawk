@@ -17,7 +17,11 @@ export default function ResultSet({
     filter.push("rating > 0");
   }
   if (filters.rating) {
-    filter.push(`rating ${filters.rating}`);
+    if (filters.unrated) {
+      filter.push(`(rating ${filters.rating} || rating = -1)`);
+    } else {
+      filter.push(`rating ${filters.rating}`);
+    }
   }
   if (filters.difficulty) {
     filter.push(`difficulty ${filters.difficulty}`);
