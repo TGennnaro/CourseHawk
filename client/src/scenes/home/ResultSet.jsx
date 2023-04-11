@@ -1,12 +1,9 @@
-import { Button, Pagination, Row, Text } from "@nextui-org/react";
 import RatingCard from "../../components/RatingCard";
 import { useEffect, useState } from "react";
 import pb from "../../lib/pocketbase";
 
-export default function ResultSet({ searchTerm }) {
+export default function ResultSet({ searchTerm, setResultTotal, page }) {
   const [results, setResults] = useState([]);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
 
   const PER_PAGE = 10;
 
@@ -17,19 +14,12 @@ export default function ResultSet({ searchTerm }) {
         sort: "-rating",
       });
       setResults(data.items);
-      setTotal(data.totalPages);
+      setResultTotal(data.totalPages);
     })();
   }, [page, searchTerm]);
 
   return (
-    <div className="mt-6">
-      <Row justify="space-between">
-        <Text h3>Results:</Text>
-        <div className="flex gap-4">
-          <Button auto>Filters</Button>
-          <Pagination total={Math.ceil(total)} onChange={(p) => setPage(p)} />
-        </div>
-      </Row>
+    <div className="mt-4">
       {results && results.length > 0 ? (
         <ul className="m-0">
           {results?.map((item) => (
