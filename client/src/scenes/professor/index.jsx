@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import pb from "../../lib/pocketbase";
 import { Button, Card, Link, Row, Text } from "@nextui-org/react";
+import { MdChevronLeft } from "react-icons/md";
 
 export default function ProfessorPage() {
   const id = useParams().id;
@@ -29,8 +30,16 @@ export default function ProfessorPage() {
 
   return (
     <div className="flex flex-col justify-center mt-8 mx-auto p-8 max-w-screen-xl">
-      <Link href="/" className="mb-8">
-        {"< "} Back to search
+      <Link href="/">
+        <Button
+          auto
+          light
+          icon={<MdChevronLeft size={24} />}
+          color="primary"
+          className="w-fit mb-4 p-0 pr-4 outline-none"
+        >
+          Return to professor list
+        </Button>
       </Link>
       <Text h1>{professorData?.name || ""}</Text>
       <Text h3 color="$gray800">
@@ -91,6 +100,7 @@ export default function ProfessorPage() {
               course.number
             }
             target="_blank"
+            key={course.number}
           >
             <Card className="p-4" key={course.number} isPressable>
               <Text h3>{course.name}</Text>

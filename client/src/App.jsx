@@ -9,15 +9,38 @@ const darkTheme = createTheme({
 
 function App() {
   return (
-    <NextUIProvider theme={darkTheme}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/professor/:id" element={<ProfessorPage />} />
-        </Routes>
-      </BrowserRouter>
-    </NextUIProvider>
+    <>
+      <div
+        style={{
+          width: "100vw",
+          height: "100vh",
+          backgroundImage: "radial-gradient(#0072F5, #000 70%)",
+          opacity: 0.2,
+          position: "fixed",
+        }}
+      ></div>
+      <div className="z-10 relative">
+        <NextUIProvider theme={darkTheme}>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/professor/:id" element={<ProfessorPage />} />
+            </Routes>
+          </BrowserRouter>
+        </NextUIProvider>
+      </div>
+    </>
   );
+  // return (
+  //   <NextUIProvider theme={darkTheme}>
+  //     <BrowserRouter>
+  //       <Routes>
+  //         <Route path="/" element={<Home />} />
+  //         <Route path="/professor/:id" element={<ProfessorPage />} />
+  //       </Routes>
+  //     </BrowserRouter>
+  //   </NextUIProvider>
+  // );
 }
 
 export default App;

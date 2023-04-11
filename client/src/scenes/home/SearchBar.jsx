@@ -11,9 +11,8 @@ export default function SearchBar({ searchTerm, setSearchTerm }) {
       clearable
       fullWidth
       aria-labelledby="search-bar"
-      onInput={(e) => {
-        setSearchTerm(e.target.value);
-      }}
+      onInput={(e) => setSearchTerm(e.target.value)}
+      onClearClick={() => setSearchTerm("")}
     />
   );
 }
