@@ -15,7 +15,8 @@ const admin = await pb.admins.authWithPassword(process.env.PB_EMAIL, process.env
 // console.log(await matchProfessor("M. Yu")); // Works
 console.log(await matchProfessor("E. Walsh", "AN-103"));
 
-async function matchProfessor(initials) {
+async function matchProfessor(initials, course) {
+	course.replace("-", " ");
 	const browser = await puppeteer.launch();
 	const page = await browser.newPage();
 	const searchQuery = initials.replace(". ", "+");
@@ -36,9 +37,14 @@ async function matchProfessor(initials) {
 	});
 
 	if (filtered.length > 1) {
+		console.log("Multiple results found for " + initials);
 		for (const result of filtered) {
 			await page.goto(result.link);
 			const blocks = await page.$$(".wp-block-column");
+			blocks.forEach(async block => {
+				const match = await page.evaluate(el => el.textContent.includes(course), block);
+				console.log("Matched: ", match)
+			});
 		}
 	} else {
 		browser.close();
