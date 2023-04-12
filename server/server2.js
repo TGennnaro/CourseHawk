@@ -9,52 +9,84 @@ import ratings from "@mtucourses/rate-my-professors";
 
 // const admin = await pb.admins.authWithPassword(process.env.PB_EMAIL, process.env.PB_PASSWORD);
 
-// scrapeWebData();
+scrapeWebData();
 
 // console.log(await matchProfessor("C. Yu")); // Works
 // console.log(await matchProfessor("M. Yu")); // Works
 // console.log(await matchProfessor("E. Walsh", "AN-103"));
 
-async function matchProfessor(initials, course) {
-	course = course.replace("-", " ");
-	const browser = await puppeteer.launch();
-	const page = await browser.newPage();
-	const searchQuery = initials.replace(". ", "+");
-	await page.goto(`https://www.monmouth.edu/directory?s=${searchQuery}`);
+const professorMatchCache = {};
+async function matchProfessor(original, course) {
+	return new Promise(async (res, rej) => {
+		course = course.replace("-", " ");
 
-	const rawResults = await page.$$(".person-name > a");
-	const results = await Promise.all(rawResults.map(async result => {
-		const name = await page.evaluate(el => el.textContent, result);
-		const link = await page.evaluate(el => el.href, result);
-		return { name: name.split(",")[0], link };
-	}));
-	const filtered = results.filter(result => {
-		const initialName = initials.replace(".", "").split(" ");
-		const resultName = result.name.split(" ");
-		if (initialName[1] != resultName[1]) return false;
-		if (!resultName[0].startsWith(initialName[0])) return false;
-		return true;
+		const cachedName = checkCache();
+		if (cachedName) {
+			return res(cachedName);
+		};
+
+		const browser = await puppeteer.launch();
+		const page = await browser.newPage();
+		const searchQuery = original.replace(". ", "+");
+		await page.goto(`https://www.monmouth.edu/directory?s=${searchQuery}`);
+
+		const rawResults = await page.$$(".person-name > a");
+		const results = await Promise.all(rawResults.map(async result => {
+			const name = await page.evaluate(el => el.textContent, result);
+			const link = await page.evaluate(el => el.href, result);
+			return { name: name.split(",")[0], link };
+		}));
+		const filtered = results.filter(result => {
+			const initialName = original.replace(".", "").split(" ");
+			const resultName = result.name.split(" ");
+			if (initialName.length == 1 && initialName[0] == resultName[resultName.length - 1]) return true; // If the last name is the only name, it's a match
+			if (initialName[initialName.length - 1] != resultName[resultName.length - 1]) return false; // use last index to account for middle initials
+			if (!resultName[0].startsWith(initialName[0])) return false;
+			return true;
+		});
+
+		if (filtered.length > 1) {
+			const depthMatches = [];
+			for (const result of filtered) {
+				await page.goto(result.link);
+				const blocks = await page.$$(".wp-block-column");
+				await Promise.all(blocks.map(async block => {
+					const textContent = await page.evaluate(el => el.textContent, block);
+					if (textContent.includes(course) && !depthMatches.includes(result)) depthMatches.push(result);
+				}));
+			}
+			if (depthMatches.length > 1) {
+				console.log("Multiple results found for " + original + " after depth search:", depthMatches);
+			}
+			browser.close();
+			cache(depthMatches[0]?.name || null)
+		} else {
+			browser.close();
+			cache(filtered[0]?.name || null)
+		}
+		function cache(matched) {
+			const courseType = course.split(" ")[0];
+			if (professorMatchCache[original]) {
+				if (!professorMatchCache[original].courseTypes.includes(courseType)) {
+					professorMatchCache[original].courseTypes.push(courseType);
+				}
+			} else {
+				professorMatchCache[original] = {
+					name: matched,
+					courseTypes: [courseType]
+				}
+			}
+			res(matched)
+		}
+		function checkCache() {
+			const courseType = course.split(" ")[0];
+			if (professorMatchCache[original]) {
+				if (professorMatchCache[original].courseTypes.includes(courseType)) {
+					return professorMatchCache[original].name;
+				}
+			}
+		}
 	});
-
-	if (filtered.length > 1) {
-		const depthMatches = [];
-		for (const result of filtered) {
-			await page.goto(result.link);
-			const blocks = await page.$$(".wp-block-column");
-			await Promise.all(blocks.map(async block => {
-				const textContent = await page.evaluate(el => el.textContent, block);
-				if (textContent.includes(course) && !depthMatches.includes(result)) depthMatches.push(result);
-			}));
-		}
-		if (depthMatches.length > 1) {
-			console.log("Multiple results found for " + initials + " after depth search:", depthMatches);
-		}
-		browser.close();
-		return depthMatches[0] || null;
-	} else {
-		browser.close();
-		return filtered[0] || null;
-	}
 }
 
 async function scrapeWebData() {
@@ -86,7 +118,8 @@ async function scrapeWebData() {
 			const courseCell = await fields[0].$("span");
 			const courseRaw = await page.evaluate(el => el.innerHTML, courseCell);
 			const courseNo = courseRaw.split("<br>")[0];
-			console.log("Scraping data for " + courseNo);
+			const courseBase = courseNo.split("-").slice(0, 2).join("-");
+			// console.log("Scraping data for " + courseNo);
 
 			const courseName = await parseCourseNameFromID(courseNo, courseRaw.split("<br>")[1]);
 			const professors = await parseProfessorsFromRow(page, fields);
@@ -95,9 +128,17 @@ async function scrapeWebData() {
 
 			const professorData = [];
 			for (const professor of professors) {
-				const data = await getProfessorData(professor);
-				professorData.push(data);
+				if (professor.toLowerCase().includes("unassign")) continue;
+				const name = await matchProfessor(professor, courseBase);
+				// const data = 
+				if (!name) {
+					console.log("--------------------- No match for " + professor + " ---------------------");
+					continue;
+				}
+				console.log("Matched " + professor + " to " + name);
+				// professorData.push(data);
 			}
+			continue;
 
 			// console.log(courseNo, courseName, professorData, credits, term);
 
