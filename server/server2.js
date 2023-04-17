@@ -5,6 +5,12 @@ import PocketBase from "pocketbase";
 import puppeteer from "puppeteer";
 import ratings from "@mtucourses/rate-my-professors";
 
+const cache = {
+	professorMatch: {},
+	courseName: {},
+	matchTime: []
+}
+
 // const pb = new PocketBase("http://127.0.0.1:8090");
 
 // const admin = await pb.admins.authWithPassword(process.env.PB_EMAIL, process.env.PB_PASSWORD);
@@ -14,12 +20,70 @@ scrapeWebData();
 // console.log(await matchProfessor("C. Yu")); // Works
 // console.log(await matchProfessor("M. Yu")); // Works
 // console.log(await matchProfessor("E. Walsh", "AN-103"));
+// console.log(await matchProfessor("W. Attardi", "BK-459"));
 
-const professorMatchCache = {};
+// console.log(doNamesMatch("E. Walsh", "Eileen Walsh"));
+// console.log(doNamesMatch("G. Eckert", "Gil Eckert"));
+// console.log(doNamesMatch("P. O'Halloran", "Patrick O'Halloran"));
+// console.log(doNamesMatch("W. Attardi", "Bill Attardi"));
+// console.log(doNamesMatch("O. McKay", "Orin McKay Jr."));
+// console.log(doNamesMatch("O. McKay", "Patrick McKay Jr."));
+// console.log(doNamesMatch("K. Harney Furgason", "Kelly Furgason"));
+// console.log(doNamesMatch("L. Allocco", "Lisa Allocco Russo"));
+// console.log(doNamesMatch("Holmes", "Robyn Holmes"));
+
+function doNamesMatch(name1, name2) {
+	name1 = name1.replace("-", " ").replace("’", "'").toLowerCase();
+	name2 = name2.replace("-", " ").replace("’", "'").toLowerCase();
+	// console.log("Comparing", name1, "and", name2)
+	const name1Split = name1.split(" ");
+	const name2Split = name2.split(" ");
+	if (name1Split.length == 1) return name2.slice(1).includes(name1) && 2; // If only a last name is provided, check if name2 has the same last name
+	if (name2Split.length == 1) return name1.slice(1).includes(name2) && 2;
+	const name1Info = {
+		first: name1Split[0].replace(".", ""),
+		last: name1Split.slice(1)
+	};
+	const name2Info = {
+		first: name2Split[0].replace(".", ""),
+		last: name2Split.slice(1)
+	};
+	const lastNamesMatch = findLastNamePair(name1Info.last, name2Info.last);
+	// console.log(name1Info.last, lastNamesMatch)
+	if (!lastNamesMatch) return 0;
+	if (name1Info.first == name2Info.first) return 2;
+	// console.log(name1Info.first, name2Info.first)
+	if (name1Info.first.startsWith(name2Info.first)) return 2;
+	if (name2Info.first.startsWith(name1Info.first)) return 2;
+	return 1;
+}
+
+function findLastNamePair(name1, name2) {
+	for (let i = 0; i < name1.length; i++) {
+		for (let j = 0; j < name2.length; j++) {
+			if (name1[i] == name2[j]) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+function getNamesArray(name) {
+	name = name.replace("-", " ").replace("’", "'").toLowerCase();
+	const nameSplit = name.split(" ");
+	const nameInfo = {
+		first: nameSplit[0].replace(".", ""),
+		last: nameSplit.slice(1)
+	};
+	return nameInfo;
+}
+
 async function matchProfessor(original, course) {
 	return new Promise(async (res, rej) => {
-		course = course.replace("-", " ");
+		course = course.replace("-", " "); // Courses are formatted as AB 100
 
+		// Check if the name is cached
 		const cachedName = checkCache();
 		if (cachedName) {
 			return res(cachedName);
@@ -27,51 +91,75 @@ async function matchProfessor(original, course) {
 
 		const browser = await puppeteer.launch();
 		const page = await browser.newPage();
-		const searchQuery = original.replace(". ", "+");
+		const searchQuery = original.replace(". ", "+"); // Replace space with + for URL
+		// console.log("Searching directory for " + original + "...");
 		await page.goto(`https://www.monmouth.edu/directory?s=${searchQuery}`);
 
-		const rawResults = await page.$$(".person-name > a");
+		const rawResults = await page.$$(".person-name > a"); // Cannot narrow down results, some matches are the 25th result...
 		const results = await Promise.all(rawResults.map(async result => {
 			const name = await page.evaluate(el => el.textContent, result);
 			const link = await page.evaluate(el => el.href, result);
-			return { name: name.split(",")[0], link };
+			return { name: name.split(",")[0], link }; // get the name and page link (in case of deep search)
 		}));
+		// console.log("Got " + results.length + " results for " + original)
 		const filtered = results.filter(result => {
-			const initialName = original.replace(".", "").split(" ");
-			const resultName = result.name.split(" ");
-			if (initialName.length == 1 && initialName[0] == resultName[resultName.length - 1]) return true; // If the last name is the only name, it's a match
-			if (initialName[initialName.length - 1] != resultName[resultName.length - 1]) return false; // use last index to account for middle initials
-			if (!resultName[0].startsWith(initialName[0])) return false;
-			return true;
+			result.match = doNamesMatch(original, result.name); // Check if the name matches
+			return (result.match > 0); // Only get the matches that are either full (2) or partial (1)
 		});
 
-		if (filtered.length > 1) {
-			const depthMatches = [];
-			for (const result of filtered) {
-				await page.goto(result.link);
-				const blocks = await page.$$(".wp-block-column");
-				await Promise.all(blocks.map(async block => {
-					const textContent = await page.evaluate(el => el.textContent, block);
-					if (textContent.includes(course) && !depthMatches.includes(result)) depthMatches.push(result);
-				}));
+		let matchPriority = 2;
+		while (matchPriority > 0) {
+			const check = filtered.filter(result => {
+				if (result.match == matchPriority) { // Only check the names that are of the given priority (starts high, gets lower)
+					return true;
+				}
+			});
+			if (check.length == 1) { // If there is only 1 match, use it
+				browser.close();
+				cacheName(check[0].name);
+				return;
+			} else if (check.length > 1) { // If there is more than one match, deep search the page for recently taught courses
+				const deepMatches = await deepSearch(check);
+				if (deepMatches.length > 1) { // If there are still multiple, take the first but log to console
+					console.log("Multiple results found for " + original + " after deep search:", deepMatches);
+				}
+				browser.close();
+				cacheName(deepMatches[0]?.name || null);
+				return;
+			} else {
+				matchPriority--; // If there are no matches, lower the priority and try again
 			}
-			if (depthMatches.length > 1) {
-				console.log("Multiple results found for " + original + " after depth search:", depthMatches);
-			}
-			browser.close();
-			cache(depthMatches[0]?.name || null)
-		} else {
-			browser.close();
-			cache(filtered[0]?.name || null)
 		}
-		function cache(matched) {
+		// No matches were found, return null
+		browser.close();
+		cacheName(null);
+
+		function deepSearch(names) {
+			console.log("Deep searching for " + original + "...");
+			return new Promise(async (res, rej) => {
+				const deepMatches = [];
+				for (const result of names) {
+					await page.goto(result.link); // Open their page and parse the data
+					const blocks = await page.$$(".wp-block-column");
+					await Promise.all(blocks.map(async block => {
+						const textContent = await page.evaluate(el => el.textContent, block);
+						// Check if the given course is in the block
+						if (textContent.includes(course) && !deepMatches.includes(result)) deepMatches.push(result);
+					}));
+				}
+				res(deepMatches);
+			});
+		}
+		function cacheName(matched) {
 			const courseType = course.split(" ")[0];
-			if (professorMatchCache[original]) {
-				if (!professorMatchCache[original].courseTypes.includes(courseType)) {
-					professorMatchCache[original].courseTypes.push(courseType);
+			// Cache professor name and course type, in case multiple professors with same initial from different departments
+			if (cache.professorMatch[original]) {
+				// Push course type if not already in array
+				if (!cache.professorMatch[original].courseTypes.includes(courseType)) {
+					cache.professorMatch[original].courseTypes.push(courseType);
 				}
 			} else {
-				professorMatchCache[original] = {
+				cache.professorMatch[original] = {
 					name: matched,
 					courseTypes: [courseType]
 				}
@@ -80,9 +168,10 @@ async function matchProfessor(original, course) {
 		}
 		function checkCache() {
 			const courseType = course.split(" ")[0];
-			if (professorMatchCache[original]) {
-				if (professorMatchCache[original].courseTypes.includes(courseType)) {
-					return professorMatchCache[original].name;
+			// Check if the name is cached already
+			if (cache.professorMatch[original]) {
+				if (cache.professorMatch[original].courseTypes.includes(courseType)) {
+					return cache.professorMatch[original].name;
 				}
 			}
 		}
@@ -108,10 +197,11 @@ async function scrapeWebData() {
 			});
 
 		const rows = await page.$$("#MainContent_dgdSearchResult tr");
+		const START = 250; // default: 1
 		const ITERATIONS = rows.length;
-		// const ITERATIONS = 10;
 		const updatedProfessors = {};
-		for (let i = 1; i < ITERATIONS; i++) {
+		for (let i = START; i < ITERATIONS; i++) {
+			let startTime = Date.now();
 			const row = rows[i];
 			const fields = await row.$$("td");
 
@@ -128,14 +218,16 @@ async function scrapeWebData() {
 
 			const professorData = [];
 			for (const professor of professors) {
-				if (professor.toLowerCase().includes("unassign")) continue;
+				if (professor.toLowerCase().includes("unassign")) continue; // We don't care about unassigned professors
 				const name = await matchProfessor(professor, courseBase);
-				// const data = 
-				if (!name) {
+				if (!name) { // If no match was found, log to console and skip
 					console.log("--------------------- No match for " + professor + " ---------------------");
 					continue;
 				}
-				console.log("Matched " + professor + " to " + name);
+				const timeTook = (Date.now() - startTime) / 1000; // time the match took in seconds
+				cache.matchTime.push(timeTook); // push to cache for average later
+				console.log(i + ". Matched " + professor + " to " + name + " after ", timeTook, "seconds");
+				startTime = Date.now(); // change start time in case of two professors. Will be reset at start of loop otherwise
 				// professorData.push(data);
 			}
 			continue;
@@ -169,6 +261,8 @@ async function scrapeWebData() {
 
 			console.log("Saved " + courseNo);
 		}
+		console.log("Scrape has completed.");
+		console.log("Average match time: ", cache.matchTime.reduce((a, b) => a + b, 0) / cache.matchTime.length, "seconds");
 
 		browser.close();
 	});
@@ -257,17 +351,15 @@ function parseTermFromRow(page, row) {
 	});
 }
 
-const courseNameCache = {};
-
 function parseCourseNameFromID(id, backup) {
 	const raw = id.split("-").slice(0, 2); 	// AB-100-01
 	const baseID = raw.join("_"); 					// AB-100
 	return new Promise(async (res, rej) => {
 		function cacheName(name) {
-			courseNameCache[baseID] = name;
+			cache.courseName[baseID] = name;
 		}
-		if (courseNameCache[baseID]) {
-			return res(courseNameCache[baseID]);
+		if (cache.courseName[baseID]) {
+			return res(cache.courseName[baseID]);
 		}
 		const url = "https://www2.monmouth.edu/muwebadv/wa3/search/CourseDescV2.aspx?Id=" + baseID;
 
