@@ -21,6 +21,8 @@ scrapeWebData();
 // console.log(await matchProfessor("M. Yu")); // Works
 // console.log(await matchProfessor("E. Walsh", "AN-103"));
 // console.log(await matchProfessor("W. Attardi", "BK-459"));
+// console.log(await matchProfessor("F. DeJesus", "BM-471-02"));
+// console.log(await matchProfessor("X. Li", "BA-251-01"));
 
 // console.log(doNamesMatch("E. Walsh", "Eileen Walsh"));
 // console.log(doNamesMatch("G. Eckert", "Gil Eckert"));
@@ -33,7 +35,6 @@ scrapeWebData();
 // console.log(doNamesMatch("Lionetti", "Kathryn Lionetti"));
 
 function doNamesMatch(name1, name2) {
-	// console.log("Comparing", name1, "and", name2)
 	const name1Info = getNamesArray(name1);
 	const name2Info = getNamesArray(name2);
 	if (name1Info.last.length == 0) return name2Info.last.includes(name1Info.first) && 2; // If only a last name is provided, check if name2 has the same last name
@@ -45,6 +46,8 @@ function doNamesMatch(name1, name2) {
 	// console.log(name1Info.first, name2Info.first)
 	if (name1Info.first.startsWith(name2Info.first)) return 2;
 	if (name2Info.first.startsWith(name1Info.first)) return 2;
+	if (name1Info.first.startsWith("b") && name2Info.first.startsWith("w")) return 2; // Bill and Will are interchangable
+	if (name1Info.first.startsWith("w") && name2Info.first.startsWith("b")) return 2;
 	return 1;
 }
 
@@ -60,16 +63,20 @@ function findLastNamePair(name1, name2) {
 }
 
 function getNamesArray(name) {
-	name = name.replace("-", " ").replace("’", "'").toLowerCase();
+	name = name.replace("-", " ") // Replace hyphens with spaces
+		.replace("’", "'") // Replace apostrophes with normal ones
+		.replace(/([a-z])([A-Z])/g, "$1 $2") // Add spaces between last name segments (DeJesus -> De Jesus)
+		.toLowerCase() // Make everything lowercase
+		.replace(/(\w)\.(\w)/g, "$1 $2"); // Replace periods with spaces if they are not initials (St.Germain -> St Germain)
 	const nameSplit = name.split(" ");
 	const nameInfo = {
-		first: nameSplit[0].replace(".", ""),
+		first: nameSplit[0].replace(".", ""), // get rid of period in first initial
 		last: nameSplit.slice(1)
 	};
 	return nameInfo;
 }
 
-async function matchProfessor(original, course) {
+async function matchProfessor(original, course, noCache = false) {
 	return new Promise(async (res, rej) => {
 		course = course.replace("-", " "); // Courses are formatted as AB 100
 
@@ -81,9 +88,10 @@ async function matchProfessor(original, course) {
 
 		const browser = await puppeteer.launch();
 		const page = await browser.newPage();
-		const searchQuery = original.replace(". ", "+"); // Replace space with + for URL
-		// console.log("Searching directory for " + original + "...");
-		await page.goto(`https://www.monmouth.edu/directory?s=${searchQuery}`);
+		const SHORT_NAME_CUTOFF = 6; // The cutoff to when a name is considered 'short', ie. (X. Li -> X 'Li')
+		// Added %27 to add single quotes around last name. Helps with shorter names.
+		const searchQuery = original.replace(". ", "+" + (original.length < SHORT_NAME_CUTOFF ? "%27" : "")).replace(/([a-z])([A-Z])/g, "$1+$2"); // Replace space with + for URL
+		await page.goto(`https://www.monmouth.edu/directory?s=${searchQuery}${original.length < SHORT_NAME_CUTOFF ? "%27" : ""}`);
 
 		const rawResults = await page.$$(".person-name > a"); // Cannot narrow down results, some matches are the 25th result...
 		const results = await Promise.all(rawResults.map(async result => {
@@ -127,7 +135,7 @@ async function matchProfessor(original, course) {
 		const names = getNamesArray(original);
 		if (names.last.length > 1) {
 			for (let name of names.last) {
-				const match = await matchProfessor([names.first, name].join(" "), course);
+				const match = await matchProfessor([names.first, name].join(" "), course, true);
 				if (match) {
 					browser.close();
 					cacheName(match);
@@ -156,6 +164,7 @@ async function matchProfessor(original, course) {
 			});
 		}
 		function cacheName(matched) {
+			if (noCache) return res(matched);
 			const courseType = course.split(" ")[0];
 			// Cache professor name and course type, in case multiple professors with same initial from different departments
 			if (cache.professorMatch[original]) {
@@ -169,7 +178,7 @@ async function matchProfessor(original, course) {
 					courseTypes: [courseType]
 				}
 			}
-			res(matched)
+			res(matched);
 		}
 		function checkCache() {
 			const courseType = course.split(" ")[0];
@@ -202,7 +211,7 @@ async function scrapeWebData() {
 			});
 
 		const rows = await page.$$("#MainContent_dgdSearchResult tr");
-		const START = 1480; // default: 1
+		const START = 1; // default: 1
 		const ITERATIONS = rows.length;
 		const updatedProfessors = {};
 		console.log("Scraping data for " + (ITERATIONS - START) + " courses...");
@@ -268,10 +277,10 @@ async function scrapeWebData() {
 			console.log("Saved " + courseNo);
 		}
 		console.log("Scrape has completed.");
-		const totalTime = cache.matchTime.reduce((a, b) => a + b, 0);
+		const totalTime = Math.round(cache.matchTime.reduce((a, b) => a + b, 0) * 100) / 100;
 		console.log("Average match time: ", Math.round(totalTime / cache.matchTime.length * 100) / 100, "seconds");
-		console.log("Total match time: ", totalTime, "seconds");
-		console.log("Professors without a name match: ", Object.entries(cache.professorMatch).filter(entry => entry[1].name === null));
+		console.log("Total match time: ", totalTime, "seconds (", Math.round(totalTime / 60 * 100) / 100, " minutes)");
+		console.log("Professors without a name match: ", Object.entries(cache.professorMatch).filter(entry => { if (entry[1].name === null) return entry[0] }));
 
 		browser.close();
 	});
