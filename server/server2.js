@@ -30,24 +30,14 @@ scrapeWebData();
 // console.log(doNamesMatch("O. McKay", "Patrick McKay Jr."));
 // console.log(doNamesMatch("K. Harney Furgason", "Kelly Furgason"));
 // console.log(doNamesMatch("L. Allocco", "Lisa Allocco Russo"));
-// console.log(doNamesMatch("Holmes", "Robyn Holmes"));
+// console.log(doNamesMatch("Lionetti", "Kathryn Lionetti"));
 
 function doNamesMatch(name1, name2) {
-	name1 = name1.replace("-", " ").replace("’", "'").toLowerCase();
-	name2 = name2.replace("-", " ").replace("’", "'").toLowerCase();
 	// console.log("Comparing", name1, "and", name2)
-	const name1Split = name1.split(" ");
-	const name2Split = name2.split(" ");
-	if (name1Split.length == 1) return name2.slice(1).includes(name1) && 2; // If only a last name is provided, check if name2 has the same last name
-	if (name2Split.length == 1) return name1.slice(1).includes(name2) && 2;
-	const name1Info = {
-		first: name1Split[0].replace(".", ""),
-		last: name1Split.slice(1)
-	};
-	const name2Info = {
-		first: name2Split[0].replace(".", ""),
-		last: name2Split.slice(1)
-	};
+	const name1Info = getNamesArray(name1);
+	const name2Info = getNamesArray(name2);
+	if (name1Info.last.length == 0) return name2Info.last.includes(name1Info.first) && 2; // If only a last name is provided, check if name2 has the same last name
+	if (name2Info.last.length == 0) return name1Info.last.includes(name2Info.first) && 2;
 	const lastNamesMatch = findLastNamePair(name1Info.last, name2Info.last);
 	// console.log(name1Info.last, lastNamesMatch)
 	if (!lastNamesMatch) return 0;
@@ -114,23 +104,38 @@ async function matchProfessor(original, course) {
 					return true;
 				}
 			});
-			if (check.length == 1) { // If there is only 1 match, use it
-				browser.close();
-				cacheName(check[0].name);
-				return;
-			} else if (check.length > 1) { // If there is more than one match, deep search the page for recently taught courses
+
+			if (check.length > 1 || (check.length == 1 && matchPriority == 1)) { // If there is more than one match, deep search the page for recently taught courses
 				const deepMatches = await deepSearch(check);
 				if (deepMatches.length > 1) { // If there are still multiple, take the first but log to console
 					console.log("Multiple results found for " + original + " after deep search:", deepMatches);
 				}
 				browser.close();
+				if (deepMatches.length == 0 && matchPriority == 2)
+					return cacheName(check[0].name); // If there are no matches, cache the original name
 				cacheName(deepMatches[0]?.name || null);
+				return;
+			} else if (check.length == 1) { // If there is only 1 match, use it
+				browser.close();
+				cacheName(check[0].name);
 				return;
 			} else {
 				matchPriority--; // If there are no matches, lower the priority and try again
 			}
 		}
-		// No matches were found, return null
+		// No matches were found, try other last name combinations
+		const names = getNamesArray(original);
+		if (names.last.length > 1) {
+			for (let name of names.last) {
+				const match = await matchProfessor([names.first, name].join(" "), course);
+				if (match) {
+					browser.close();
+					cacheName(match);
+					return;
+				}
+			}
+		}
+		// No matches at all. Return null.
 		browser.close();
 		cacheName(null);
 
@@ -197,9 +202,10 @@ async function scrapeWebData() {
 			});
 
 		const rows = await page.$$("#MainContent_dgdSearchResult tr");
-		const START = 250; // default: 1
+		const START = 1480; // default: 1
 		const ITERATIONS = rows.length;
 		const updatedProfessors = {};
+		console.log("Scraping data for " + (ITERATIONS - START) + " courses...");
 		for (let i = START; i < ITERATIONS; i++) {
 			let startTime = Date.now();
 			const row = rows[i];
@@ -220,13 +226,13 @@ async function scrapeWebData() {
 			for (const professor of professors) {
 				if (professor.toLowerCase().includes("unassign")) continue; // We don't care about unassigned professors
 				const name = await matchProfessor(professor, courseBase);
-				if (!name) { // If no match was found, log to console and skip
-					console.log("--------------------- No match for " + professor + " ---------------------");
-					continue;
-				}
 				const timeTook = (Date.now() - startTime) / 1000; // time the match took in seconds
 				cache.matchTime.push(timeTook); // push to cache for average later
-				console.log(i + ". Matched " + professor + " to " + name + " after ", timeTook, "seconds");
+				if (!name) { // If no match was found, log to console and skip
+					console.log("--------------------- No match for " + professor + " [" + courseNo + "] after ", timeTook, " seconds --------------------- ");
+					continue;
+				}
+				console.log(i + ". Matched " + professor + " to " + name + " [" + courseNo + "] after ", timeTook, "seconds");
 				startTime = Date.now(); // change start time in case of two professors. Will be reset at start of loop otherwise
 				// professorData.push(data);
 			}
@@ -262,7 +268,10 @@ async function scrapeWebData() {
 			console.log("Saved " + courseNo);
 		}
 		console.log("Scrape has completed.");
-		console.log("Average match time: ", cache.matchTime.reduce((a, b) => a + b, 0) / cache.matchTime.length, "seconds");
+		const totalTime = cache.matchTime.reduce((a, b) => a + b, 0);
+		console.log("Average match time: ", Math.round(totalTime / cache.matchTime.length * 100) / 100, "seconds");
+		console.log("Total match time: ", totalTime, "seconds");
+		console.log("Professors without a name match: ", Object.entries(cache.professorMatch).filter(entry => entry[1].name === null));
 
 		browser.close();
 	});
