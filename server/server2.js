@@ -17,6 +17,15 @@ const cache = {
 
 scrapeWebData();
 
+Array.prototype.filterMap = function (callback) {
+	for (let i = 0; i < this.length; i++) {
+		const result = callback(this[i], i, this);
+		if (result) {
+			return result;
+		}
+	}
+}
+
 function doNamesMatch(name1, name2) {
 	const name1Info = getNamesArray(name1);
 	const name2Info = getNamesArray(name2);
@@ -267,7 +276,7 @@ async function scrapeWebData() {
 		const totalTime = Math.round(cache.matchTime.reduce((a, b) => a + b, 0) * 100) / 100;
 		console.log("Average match time: ", Math.round(totalTime / cache.matchTime.length * 100) / 100, "seconds");
 		console.log("Total match time: ", totalTime, "seconds (", Math.round(totalTime / 60 * 100) / 100, " minutes)");
-		console.log("Professors without a name match: ", Object.entries(cache.professorMatch).filter(entry => { if (entry[1].name === null) return entry[0] }));
+		console.log("Professors without a name match: ", Object.entries(cache.professorMatch).filterMap(entry => { if (entry[1].name === null) return entry[0] }));
 
 		browser.close();
 	});
