@@ -37,6 +37,7 @@ scrapeWebData();
 function doNamesMatch(name1, name2) {
 	const name1Info = getNamesArray(name1);
 	const name2Info = getNamesArray(name2);
+	// console.log(name1Info, name2Info)
 	if (name1Info.last.length == 0) return name2Info.last.includes(name1Info.first) && 2; // If only a last name is provided, check if name2 has the same last name
 	if (name2Info.last.length == 0) return name1Info.last.includes(name2Info.first) && 2;
 	const lastNamesMatch = findLastNamePair(name1Info.last, name2Info.last);
@@ -65,7 +66,6 @@ function findLastNamePair(name1, name2) {
 function getNamesArray(name) {
 	name = name.replace("-", " ") // Replace hyphens with spaces
 		.replace("’", "'") // Replace apostrophes with normal ones
-		.replace(/([a-z])([A-Z])/g, "$1 $2") // Add spaces between last name segments (DeJesus -> De Jesus)
 		.toLowerCase() // Make everything lowercase
 		.replace(/(\w)\.(\w)/g, "$1 $2"); // Replace periods with spaces if they are not initials (St.Germain -> St Germain)
 	const nameSplit = name.split(" ");
@@ -88,10 +88,10 @@ async function matchProfessor(original, course, noCache = false) {
 
 		const browser = await puppeteer.launch();
 		const page = await browser.newPage();
-		const SHORT_NAME_CUTOFF = 6; // The cutoff to when a name is considered 'short', ie. (X. Li -> X 'Li')
+		const SHOULD_ADD_QUOTE = original.length < 6 && original.includes(" "); // The cutoff to when a name is considered 'short', ie. (X. Li -> X 'Li')
 		// Added %27 to add single quotes around last name. Helps with shorter names.
-		const searchQuery = original.replace(". ", "+" + (original.length < SHORT_NAME_CUTOFF ? "%27" : "")).replace(/([a-z])([A-Z])/g, "$1+$2"); // Replace space with + for URL
-		await page.goto(`https://www.monmouth.edu/directory?s=${searchQuery}${original.length < SHORT_NAME_CUTOFF ? "%27" : ""}`);
+		const searchQuery = original.replace(". ", "+" + (SHOULD_ADD_QUOTE ? "%27" : ""));
+		await page.goto(`https://www.monmouth.edu/directory?s=${searchQuery}${SHOULD_ADD_QUOTE ? "%27" : ""}`);
 
 		const rawResults = await page.$$(".person-name > a"); // Cannot narrow down results, some matches are the 25th result...
 		const results = await Promise.all(rawResults.map(async result => {
@@ -105,7 +105,7 @@ async function matchProfessor(original, course, noCache = false) {
 			return (result.match > 0); // Only get the matches that are either full (2) or partial (1)
 		});
 
-		let matchPriority = 2;
+		let matchPriority = 2; // Start with highest confidence matches
 		while (matchPriority > 0) {
 			const check = filtered.filter(result => {
 				if (result.match == matchPriority) { // Only check the names that are of the given priority (starts high, gets lower)
@@ -113,7 +113,8 @@ async function matchProfessor(original, course, noCache = false) {
 				}
 			});
 
-			if (check.length > 1 || (check.length == 1 && matchPriority == 1)) { // If there is more than one match, deep search the page for recently taught courses
+			if (check.length > 1 || // If there is more than one match, deep search the page for recently taught courses
+				(check.length == 1 && matchPriority == 1)) { // If there is only one match, but it is a partial match, deep search the page
 				const deepMatches = await deepSearch(check);
 				if (deepMatches.length > 1) { // If there are still multiple, take the first but log to console
 					console.log("Multiple results found for " + original + " after deep search:", deepMatches);
@@ -141,6 +142,14 @@ async function matchProfessor(original, course, noCache = false) {
 					cacheName(match);
 					return;
 				}
+			}
+		}
+		if (original.search(/[a-z][A-Z]/) != -1) { // Try splitting last names if there is a capital letter in the middle (DeJesus -> De Jesus)
+			const match = await matchProfessor(original.replace(/([a-z])([A-Z])/g, "$1 $2"), course, true);
+			if (match) {
+				browser.close();
+				cacheName(match);
+				return;
 			}
 		}
 		// No matches at all. Return null.
