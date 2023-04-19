@@ -7,6 +7,7 @@ import ratings from "@mtucourses/rate-my-professors";
 
 const cache = {
 	professorMatch: {},
+	professorData: {},
 	courseName: {},
 	matchTime: []
 }
@@ -15,7 +16,9 @@ const cache = {
 
 // const admin = await pb.admins.authWithPassword(process.env.PB_EMAIL, process.env.PB_PASSWORD);
 
-scrapeWebData();
+console.log(await getProfessorData("Barbara Werther-Rosenow"));
+
+// scrapeWebData();
 
 Array.prototype.filterMap = function (callback) {
 	for (let i = 0; i < this.length; i++) {
@@ -165,14 +168,11 @@ async function matchProfessor(original, course, noCache = false) {
 			const courseType = course.split(" ")[0];
 			// Cache professor name and course type, in case multiple professors with same initial from different departments
 			if (cache.professorMatch[original]) {
-				// Push course type if not already in array
-				if (!cache.professorMatch[original].courseTypes.includes(courseType)) {
-					cache.professorMatch[original].courseTypes.push(courseType);
-				}
+				if (!cache.professorMatch[original][courseType])
+					cache.professorMatch[original][courseType] = matched;
 			} else {
 				cache.professorMatch[original] = {
-					name: matched,
-					courseTypes: [courseType]
+					[courseType]: matched
 				}
 			}
 			res(matched);
@@ -180,11 +180,7 @@ async function matchProfessor(original, course, noCache = false) {
 		function checkCache() {
 			const courseType = course.split(" ")[0];
 			// Check if the name is cached already
-			if (cache.professorMatch[original]) {
-				if (cache.professorMatch[original].courseTypes.includes(courseType)) {
-					return cache.professorMatch[original].name;
-				}
-			}
+			return cache.professorMatch[original]?.[courseType];
 		}
 	});
 }
@@ -239,6 +235,10 @@ async function scrapeWebData() {
 				}
 				console.log(i + ". Matched " + professor + " to " + name + " [" + courseNo + "] after ", timeTook, "seconds");
 				startTime = Date.now(); // change start time in case of two professors. Will be reset at start of loop otherwise
+				const data = await getProfessorData(name);
+				console.log(data);
+				console.log("Data received after ", (Date.now() - startTime) / 1000, "seconds");
+				startTime = Date.now();
 				// professorData.push(data);
 			}
 			continue;
@@ -309,20 +309,19 @@ function saveProfessor(data) {
 	});
 }
 
-const professorCache = {};
-
 async function getProfessorData(name) {
-	if (professorCache[name]) return professorCache[name];
-	const nameSplit = name.split(" ");
-	const firstName = nameSplit.length > 1 ? nameSplit[0] : null;
-	const lastName = nameSplit[1] || nameSplit[0];
-	const defaultReturn = { firstName: firstName || "", lastName }; // If professor name is just last name, ensure firstName is ""
+	if (cache.professorData[name]) return cache.professorData[name];
+	// const nameSplit = name.split(" ");
+	// const firstName = nameSplit.length > 1 ? nameSplit[0] : null;
+	// const lastName = nameSplit[1] || nameSplit[0];
+	// const defaultReturn = { firstName: firstName || "", lastName }; // If professor name is just last name, ensure firstName is ""
 	const professorData = await new Promise(async (res, rej) => {
 		const school = await ratings.default.searchSchool("Monmouth University");
-		const teachers = await ratings.default.searchTeacher(lastName, school[0].id);
+		const teachers = await ratings.default.searchTeacher(name, school[0].id);
 		if (!teachers || teachers.length == 0) return res(defaultReturn);
 		const teacherID = (() => {
 			for (const teacher of teachers) {
+				console.log(teacher)
 				if (teacher.school.name != "Monmouth University") continue;
 				if (firstName && !teacher.firstName.startsWith(firstName.substring(0, 1))) continue; // If there's a first name, check that the initials match
 				return teacher;
@@ -333,7 +332,7 @@ async function getProfessorData(name) {
 		const data = await ratings.default.getTeacher(teacherID.id);
 		res(data);
 	});
-	professorCache[name] = professorData;
+	cache.professorData[name] = professorData;
 	return professorData;
 }
 
