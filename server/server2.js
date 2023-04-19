@@ -16,9 +16,14 @@ const cache = {
 
 // const admin = await pb.admins.authWithPassword(process.env.PB_EMAIL, process.env.PB_PASSWORD);
 
-console.log(await getProfessorData("Barbara Werther-Rosenow"));
+// console.log(await getProfessorData("B Werther-Rosenow"));
+// console.log(await getProfessorData("Ke Sansevere"));
+// console.log(await getProfessorData("Ad Heinrich"));
+// console.log(await getProfessorData("Louis Esposito"));
+// console.log(await getProfessorData("Robert Scott III"));
+// console.log(await getProfessorData("Patrick L. O'Halloran"));
 
-// scrapeWebData();
+scrapeWebData();
 
 Array.prototype.filterMap = function (callback) {
 	for (let i = 0; i < this.length; i++) {
@@ -204,7 +209,7 @@ async function scrapeWebData() {
 			});
 
 		const rows = await page.$$("#MainContent_dgdSearchResult tr");
-		const START = 1; // default: 1
+		const START = 267; // default: 1
 		const ITERATIONS = rows.length;
 		const updatedProfessors = {};
 		console.log("Scraping data for " + (ITERATIONS - START) + " courses...");
@@ -223,23 +228,31 @@ async function scrapeWebData() {
 			const credits = await parseCreditsFromRow(page, fields);
 			const term = await parseTermFromRow(page, fields);
 
-			const professorData = [];
+			// const professorData = [];
 			for (const professor of professors) {
 				if (professor.toLowerCase().includes("unassign")) continue; // We don't care about unassigned professors
 				const name = await matchProfessor(professor, courseBase);
-				const timeTook = (Date.now() - startTime) / 1000; // time the match took in seconds
-				cache.matchTime.push(timeTook); // push to cache for average later
+				const matchTime = (Date.now() - startTime) / 1000; // time the match took in seconds
+				cache.matchTime.push(matchTime); // push to cache for average later
 				if (!name) { // If no match was found, log to console and skip
-					console.log("--------------------- No match for " + professor + " [" + courseNo + "] after ", timeTook, " seconds --------------------- ");
+					console.log("--------------------- No match for " + professor + " [" + courseNo + "] after ", matchTime, " seconds --------------------- ");
 					continue;
 				}
-				console.log(i + ". Matched " + professor + " to " + name + " [" + courseNo + "] after ", timeTook, "seconds");
+				// console.log(i + ". Matched " + professor + " to " + name + " [" + courseNo + "] after ", timeTook, "seconds");
 				startTime = Date.now(); // change start time in case of two professors. Will be reset at start of loop otherwise
-				const data = await getProfessorData(name);
-				console.log(data);
-				console.log("Data received after ", (Date.now() - startTime) / 1000, "seconds");
+				let data = await getProfessorData(name);
+				if (!data && !name.startsWith(professor.substring(0, 1))) { // If not found but the matched name has a different first initial, try the original initial
+					data = await getProfessorData([professor.substring(0, 1), name.split(" ", 2)[1]].join(" "));
+				}
+				// console.log(data);
+				const dataTime = (Date.now() - startTime) / 1000; // time the data took in seconds
+				console.log(i + ". Matched " + professor + " to " + name + " [" + courseNo + "] after ", matchTime, "seconds. "
+					+ (data ? "D" : "No d") + "ata received for "
+					+ (data ? [data.firstName, data.lastName].join(" ") : name) + " after ", dataTime, "seconds "
+				+ (data ? "✅" : "❌"));
+				// console.log((data ? "D" : "No d") + "ata received after ", (Date.now() - startTime) / 1000, "seconds");
 				startTime = Date.now();
-				// professorData.push(data);
+				// save professor
 			}
 			continue;
 
@@ -311,23 +324,28 @@ function saveProfessor(data) {
 
 async function getProfessorData(name) {
 	if (cache.professorData[name]) return cache.professorData[name];
+	// console.log(name)
+	name = name.replace(/(\s+)[A-Z]\.(\s+)/g, "$1"); // Remove middle initials
+	const nameSplit = name.split(" ");
+	name = nameSplit[0].substring(0, 2) + " " + nameSplit.slice(1).join(" "); // Only take first 2 letters of first name (avoids spelling mistakes)
 	// const nameSplit = name.split(" ");
 	// const firstName = nameSplit.length > 1 ? nameSplit[0] : null;
 	// const lastName = nameSplit[1] || nameSplit[0];
 	// const defaultReturn = { firstName: firstName || "", lastName }; // If professor name is just last name, ensure firstName is ""
 	const professorData = await new Promise(async (res, rej) => {
 		const school = await ratings.default.searchSchool("Monmouth University");
-		const teachers = await ratings.default.searchTeacher(name, school[0].id);
-		if (!teachers || teachers.length == 0) return res(defaultReturn);
+		// console.log("Searching " + name);
+		const teachers = await ratings.default.searchTeacher(name, school[0].id).catch(err => console.log(err));
+		if (!teachers || teachers.length == 0) return res();
 		const teacherID = (() => {
 			for (const teacher of teachers) {
-				console.log(teacher)
+				// console.log(teacher)
 				if (teacher.school.name != "Monmouth University") continue;
-				if (firstName && !teacher.firstName.startsWith(firstName.substring(0, 1))) continue; // If there's a first name, check that the initials match
+				// if (firstName && !teacher.firstName.startsWith(firstName.substring(0, 1))) continue; // If there's a first name, check that the initials match
 				return teacher;
 			}
 		})();
-		if (!teacherID) return res(defaultReturn);
+		if (!teacherID) return res();
 		// console.log("Matched " + firstName + " " + (lastName || "") + " with " + teacherID.firstName + " " + teacherID.lastName);
 		const data = await ratings.default.getTeacher(teacherID.id);
 		res(data);
