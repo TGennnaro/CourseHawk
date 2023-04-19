@@ -6,8 +6,9 @@ import puppeteer from "puppeteer";
 import ratings from "@mtucourses/rate-my-professors";
 
 const cache = {
-	professorMatch: {},
-	professorData: {},
+	professor: {},
+	// professorMatch: {},
+	// professorData: {},
 	courseName: {},
 	matchTime: []
 }
@@ -22,8 +23,17 @@ const cache = {
 // console.log(await getProfessorData("Louis Esposito"));
 // console.log(await getProfessorData("Robert Scott III"));
 // console.log(await getProfessorData("Patrick L. O'Halloran"));
+console.log(await getProfessorData("Felix De Jesus")); // in rmp as Felix Dejesus
+console.log(await getProfessorData("Dr. Deanna Shoemaker")); // in rmp as Deanna Shoemaker
+console.log(await getProfessorData("Wai Kong (Johnny) Pang")); // in rmp as Wai Kong Pang
+console.log(await getProfessorData("Chiu-Yin (Cathy) Wong")); // in rmp as Cathy Wong
+console.log(await getProfessorData("Carol McArthur-Amedeo")); // in rmp as Carol McArthur
+console.log(await getProfessorData("Elizabeth Gilmartin-Keating")); // in rmp as Elizabeth Gilmartin
+console.log(await getProfessorData("Lynn Kraemer-Siracusa")); // in rmp as Lynn Siracusa
+console.log(await getProfessorData("Jennifer Har")); // in rmp as Lynn Siracusa
 
-scrapeWebData();
+
+// scrapeWebData();
 
 Array.prototype.filterMap = function (callback) {
 	for (let i = 0; i < this.length; i++) {
@@ -78,10 +88,10 @@ async function matchProfessor(original, course, noCache = false) {
 		course = course.replace("-", " "); // Courses are formatted as AB 100
 
 		// Check if the name is cached
-		const cachedName = checkCache();
-		if (cachedName) {
-			return res(cachedName);
-		};
+		// const cachedName = checkCache();
+		// if (cachedName) {
+		// 	return res(cachedName);
+		// };
 
 		const browser = await puppeteer.launch();
 		const page = await browser.newPage();
@@ -170,16 +180,16 @@ async function matchProfessor(original, course, noCache = false) {
 		}
 		function cacheName(matched) {
 			if (noCache) return res(matched);
-			const courseType = course.split(" ")[0];
-			// Cache professor name and course type, in case multiple professors with same initial from different departments
-			if (cache.professorMatch[original]) {
-				if (!cache.professorMatch[original][courseType])
-					cache.professorMatch[original][courseType] = matched;
-			} else {
-				cache.professorMatch[original] = {
-					[courseType]: matched
-				}
-			}
+			// const courseType = course.split(" ")[0];
+			// // Cache professor name and course type, in case multiple professors with same initial from different departments
+			// if (cache.professorMatch[original]) {
+			// 	if (!cache.professorMatch[original][courseType])
+			// 		cache.professorMatch[original][courseType] = matched;
+			// } else {
+			// 	cache.professorMatch[original] = {
+			// 		[courseType]: matched
+			// 	}
+			// }
 			res(matched);
 		}
 		function checkCache() {
@@ -209,7 +219,7 @@ async function scrapeWebData() {
 			});
 
 		const rows = await page.$$("#MainContent_dgdSearchResult tr");
-		const START = 267; // default: 1
+		const START = 1; // default: 1
 		const ITERATIONS = rows.length;
 		const updatedProfessors = {};
 		console.log("Scraping data for " + (ITERATIONS - START) + " courses...");
@@ -222,6 +232,7 @@ async function scrapeWebData() {
 			const courseRaw = await page.evaluate(el => el.innerHTML, courseCell);
 			const courseNo = courseRaw.split("<br>")[0];
 			const courseBase = courseNo.split("-").slice(0, 2).join("-");
+			const courseType = courseNo.split("-")[0];
 
 			const courseName = await parseCourseNameFromID(courseNo, courseRaw.split("<br>")[1]);
 			const professors = await parseProfessorsFromRow(page, fields);
@@ -231,8 +242,13 @@ async function scrapeWebData() {
 			// const professorData = [];
 			for (const professor of professors) {
 				if (professor.toLowerCase().includes("unassign")) continue; // We don't care about unassigned professors
+				if (cache.professor[professor]?.[courseType]) {
+					console.log(i + ". Data for " + professor + " [" + courseNo + "] is cached, skipping after ", timeElapsed(startTime), " seconds "
+						+ (cache.professor[professor][courseType].data ? "✅" : "❔"));
+					continue;
+				}
 				const name = await matchProfessor(professor, courseBase);
-				const matchTime = (Date.now() - startTime) / 1000; // time the match took in seconds
+				const matchTime = timeElapsed(startTime); // time the match took in seconds
 				cache.matchTime.push(matchTime); // push to cache for average later
 				if (!name) { // If no match was found, log to console and skip
 					console.log("--------------------- No match for " + professor + " [" + courseNo + "] after ", matchTime, " seconds --------------------- ");
@@ -245,7 +261,7 @@ async function scrapeWebData() {
 					data = await getProfessorData([professor.substring(0, 1), name.split(" ", 2)[1]].join(" "));
 				}
 				// console.log(data);
-				const dataTime = (Date.now() - startTime) / 1000; // time the data took in seconds
+				const dataTime = timeElapsed(startTime); // time the data took in seconds
 				console.log(i + ". Matched " + professor + " to " + name + " [" + courseNo + "] after ", matchTime, "seconds. "
 					+ (data ? "D" : "No d") + "ata received for "
 					+ (data ? [data.firstName, data.lastName].join(" ") : name) + " after ", dataTime, "seconds "
@@ -253,6 +269,19 @@ async function scrapeWebData() {
 				// console.log((data ? "D" : "No d") + "ata received after ", (Date.now() - startTime) / 1000, "seconds");
 				startTime = Date.now();
 				// save professor
+				if (cache.professor[professor]) {
+					cache.professor[professor][courseType] = {
+						name,
+						data
+					}
+				} else {
+					cache.professor[professor] = {
+						[courseType]: {
+							name,
+							data
+						}
+					}
+				}
 			}
 			continue;
 
@@ -323,7 +352,7 @@ function saveProfessor(data) {
 }
 
 async function getProfessorData(name) {
-	if (cache.professorData[name]) return cache.professorData[name];
+	// if (cache.professorData[name]) return cache.professorData[name];
 	// console.log(name)
 	name = name.replace(/(\s+)[A-Z]\.(\s+)/g, "$1"); // Remove middle initials
 	const nameSplit = name.split(" ");
@@ -350,7 +379,7 @@ async function getProfessorData(name) {
 		const data = await ratings.default.getTeacher(teacherID.id);
 		res(data);
 	});
-	cache.professorData[name] = professorData;
+	// cache.professorData[name] = professorData;
 	return professorData;
 }
 
@@ -421,4 +450,8 @@ function parseCourseNameFromID(id, backup) {
 		cacheName(name);
 		res(name);
 	});
+}
+
+function timeElapsed(startTime) {
+	return Math.round((Date.now() - startTime) / 1000 * 100) / 100;
 }
