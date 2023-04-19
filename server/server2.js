@@ -17,35 +17,15 @@ const cache = {
 
 scrapeWebData();
 
-// console.log(await matchProfessor("C. Yu")); // Works
-// console.log(await matchProfessor("M. Yu")); // Works
-// console.log(await matchProfessor("E. Walsh", "AN-103"));
-// console.log(await matchProfessor("W. Attardi", "BK-459"));
-// console.log(await matchProfessor("F. DeJesus", "BM-471-02"));
-// console.log(await matchProfessor("X. Li", "BA-251-01"));
-
-// console.log(doNamesMatch("E. Walsh", "Eileen Walsh"));
-// console.log(doNamesMatch("G. Eckert", "Gil Eckert"));
-// console.log(doNamesMatch("P. O'Halloran", "Patrick O'Halloran"));
-// console.log(doNamesMatch("W. Attardi", "Bill Attardi"));
-// console.log(doNamesMatch("O. McKay", "Orin McKay Jr."));
-// console.log(doNamesMatch("O. McKay", "Patrick McKay Jr."));
-// console.log(doNamesMatch("K. Harney Furgason", "Kelly Furgason"));
-// console.log(doNamesMatch("L. Allocco", "Lisa Allocco Russo"));
-// console.log(doNamesMatch("Lionetti", "Kathryn Lionetti"));
-
 function doNamesMatch(name1, name2) {
 	const name1Info = getNamesArray(name1);
 	const name2Info = getNamesArray(name2);
-	// console.log(name1Info, name2Info)
 	if (name1Info.last.length == 0) return name2Info.last.includes(name1Info.first) && 2; // If only a last name is provided, check if name2 has the same last name
 	if (name2Info.last.length == 0) return name1Info.last.includes(name2Info.first) && 2;
 	const lastNamesMatch = findLastNamePair(name1Info.last, name2Info.last);
-	// console.log(name1Info.last, lastNamesMatch)
-	if (!lastNamesMatch) return 0;
-	if (name1Info.first == name2Info.first) return 2;
-	// console.log(name1Info.first, name2Info.first)
-	if (name1Info.first.startsWith(name2Info.first)) return 2;
+	if (!lastNamesMatch) return 0; // No last name matches
+	if (name1Info.first == name2Info.first) return 2; // First names match
+	if (name1Info.first.startsWith(name2Info.first)) return 2; // First name initial matches
 	if (name2Info.first.startsWith(name1Info.first)) return 2;
 	if (name1Info.first.startsWith("b") && name2Info.first.startsWith("w")) return 2; // Bill and Will are interchangable
 	if (name1Info.first.startsWith("w") && name2Info.first.startsWith("b")) return 2;
@@ -99,7 +79,6 @@ async function matchProfessor(original, course, noCache = false) {
 			const link = await page.evaluate(el => el.href, result);
 			return { name: name.split(",")[0], link }; // get the name and page link (in case of deep search)
 		}));
-		// console.log("Got " + results.length + " results for " + original)
 		const filtered = results.filter(result => {
 			result.match = doNamesMatch(original, result.name); // Check if the name matches
 			return (result.match > 0); // Only get the matches that are either full (2) or partial (1)
@@ -233,7 +212,6 @@ async function scrapeWebData() {
 			const courseRaw = await page.evaluate(el => el.innerHTML, courseCell);
 			const courseNo = courseRaw.split("<br>")[0];
 			const courseBase = courseNo.split("-").slice(0, 2).join("-");
-			// console.log("Scraping data for " + courseNo);
 
 			const courseName = await parseCourseNameFromID(courseNo, courseRaw.split("<br>")[1]);
 			const professors = await parseProfessorsFromRow(page, fields);
