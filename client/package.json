@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@nextui-org/react": "^1.0.0-beta.12",
+    "dotenv": "^16.0.3",
     "i": "^0.3.7",
     "npm": "^9.6.3",
     "pocketbase": "^0.13.1",

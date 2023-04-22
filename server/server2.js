@@ -162,7 +162,7 @@ async function matchProfessor(original, course, noCache = false) {
 		}
 		// No matches at all. Return null.
 		browser.close();
-		res(null);;
+		res(null);
 
 		function deepSearch(names) {
 			console.log("Deep searching for " + original + "...");
