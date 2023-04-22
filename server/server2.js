@@ -23,25 +23,27 @@ const cache = {
 // console.log(await getProfessorData("Louis Esposito"));
 // console.log(await getProfessorData("Robert Scott III"));
 // console.log(await getProfessorData("Patrick L. O'Halloran"));
-console.log(await getProfessorData("Felix De Jesus")); // in rmp as Felix Dejesus
+// console.log(await getProfessorData("Felix De Jesus")); // in rmp as Felix Dejesus
 // console.log(await getProfessorData("Dr. Deanna Shoemaker")); // in rmp as Deanna Shoemaker
-console.log(await getProfessorData("Wai Kong (Johnny) Pang")); // in rmp as Wai Kong Pang
-console.log(await getProfessorData("Chiu-Yin (Cathy) Wong")); // in rmp as Cathy Wong
-console.log(await getProfessorData("Carol McArthur-Amedeo")); // in rmp as Carol McArthur
-console.log(await getProfessorData("Elizabeth Gilmartin-Keating")); // in rmp as Elizabeth Gilmartin
-console.log(await getProfessorData("Lynn Kraemer-Siracusa")); // in rmp as Lynn Siracusa
+// console.log(await getProfessorData("Wai Kong (Johnny) Pang")); // in rmp as Wai Kong Pang
+// console.log(await getProfessorData("Chiu-Yin (Cathy) Wong")); // in rmp as Cathy Wong
+// console.log(await getProfessorData("Carol McArthur-Amedeo")); // in rmp as Carol McArthur
+// console.log(await getProfessorData("Elizabeth Gilmartin-Keating")); // in rmp as Elizabeth Gilmartin
+// console.log(await getProfessorData("Lynn Kraemer-Siracusa")); // in rmp as Lynn Siracusa
 // console.log(await getProfessorData("Jennifer Har")); // in rmp as Lynn Siracusa
 
 
-// scrapeWebData();
+scrapeWebData();
 
 Array.prototype.filterMap = function (callback) {
+	const result = [];
 	for (let i = 0; i < this.length; i++) {
-		const result = callback(this[i], i, this);
-		if (result) {
-			return result;
+		const value = callback(this[i], i, this);
+		if (value) {
+			result.push(value);
 		}
 	}
+	return result;
 }
 
 function doNamesMatch(name1, name2) {
@@ -127,12 +129,12 @@ async function matchProfessor(original, course, noCache = false) {
 				}
 				browser.close();
 				if (deepMatches.length == 0 && matchPriority == 2)
-					return cacheName(check[0].name); // If there are no matches, cache the original name
-				cacheName(deepMatches[0]?.name || null);
+					return res(check[0].name); // If there are no matches, cache the original name
+				res(deepMatches[0]?.name || null);
 				return;
 			} else if (check.length == 1) { // If there is only 1 match, use it
 				browser.close();
-				cacheName(check[0].name);
+				res(check[0].name);
 				return;
 			} else {
 				matchPriority--; // If there are no matches, lower the priority and try again
@@ -145,7 +147,7 @@ async function matchProfessor(original, course, noCache = false) {
 				const match = await matchProfessor([names.first, name].join(" "), course, true);
 				if (match) {
 					browser.close();
-					cacheName(match);
+					res(match);
 					return;
 				}
 			}
@@ -154,13 +156,13 @@ async function matchProfessor(original, course, noCache = false) {
 			const match = await matchProfessor(original.replace(/([a-z])([A-Z])/g, "$1 $2"), course, true);
 			if (match) {
 				browser.close();
-				cacheName(match);
+				res(match);
 				return;
 			}
 		}
 		// No matches at all. Return null.
 		browser.close();
-		cacheName(null);
+		res(null);;
 
 		function deepSearch(names) {
 			console.log("Deep searching for " + original + "...");
@@ -177,20 +179,6 @@ async function matchProfessor(original, course, noCache = false) {
 				}
 				res(deepMatches);
 			});
-		}
-		function cacheName(matched) {
-			if (noCache) return res(matched);
-			// const courseType = course.split(" ")[0];
-			// // Cache professor name and course type, in case multiple professors with same initial from different departments
-			// if (cache.professorMatch[original]) {
-			// 	if (!cache.professorMatch[original][courseType])
-			// 		cache.professorMatch[original][courseType] = matched;
-			// } else {
-			// 	cache.professorMatch[original] = {
-			// 		[courseType]: matched
-			// 	}
-			// }
-			res(matched);
 		}
 		function checkCache() {
 			const courseType = course.split(" ")[0];
@@ -252,6 +240,10 @@ async function scrapeWebData() {
 				cache.matchTime.push(matchTime); // push to cache for average later
 				if (!name) { // If no match was found, log to console and skip
 					console.log("--------------------- No match for " + professor + " [" + courseNo + "] after ", matchTime, " seconds --------------------- ");
+					if (cache.professor[professor])
+						cache.professor[professor][courseType] = { data: null };
+					else
+						cache.professor[professor] = { [courseType]: { data: null } };
 					continue;
 				}
 				// console.log(i + ". Matched " + professor + " to " + name + " [" + courseNo + "] after ", timeTook, "seconds");
@@ -269,19 +261,10 @@ async function scrapeWebData() {
 				// console.log((data ? "D" : "No d") + "ata received after ", (Date.now() - startTime) / 1000, "seconds");
 				startTime = Date.now();
 				// save professor
-				if (cache.professor[professor]) {
-					cache.professor[professor][courseType] = {
-						name,
-						data
-					}
-				} else {
-					cache.professor[professor] = {
-						[courseType]: {
-							name,
-							data
-						}
-					}
-				}
+				if (cache.professor[professor])
+					cache.professor[professor][courseType] = { name, data };
+				else
+					cache.professor[professor] = { [courseType]: { name, data } };
 			}
 			continue;
 
@@ -318,7 +301,9 @@ async function scrapeWebData() {
 		const totalTime = Math.round(cache.matchTime.reduce((a, b) => a + b, 0) * 100) / 100;
 		console.log("Average match time: ", Math.round(totalTime / cache.matchTime.length * 100) / 100, "seconds");
 		console.log("Total match time: ", totalTime, "seconds (", Math.round(totalTime / 60 * 100) / 100, " minutes)");
-		console.log("Professors without a name match: ", Object.entries(cache.professorMatch).filterMap(entry => { if (entry[1].name === null) return entry[0] }));
+		console.log("Professors without a name match: ", Object.entries(cache.professor).filterMap(entry =>
+			Object.values(entry[1]).some(type => type.data == null) ? entry[0] : null
+		));
 
 		browser.close();
 	});
@@ -352,36 +337,49 @@ function saveProfessor(data) {
 }
 
 async function getProfessorData(name) {
+	function resetName(nameObj) {
+		const names = Object.assign({}, nameObj);
+		names.last = names.last.filter(n => !n.startsWith("("));
+		return names;
+	}
 	const nameMutations = [
-		(names) => { return names },
 		(names, i) => {
 			names.last = names.last.slice(1);
-			console.log("names", names.last)
-			if (names.last.length > 0) i--;
-			return names;
+			if (names.last.length > 1) i--;
+			return [names, i];
+		},
+		(names, i, original) => {
+			if (names.first != original.first) return [names, i];
+			names = resetName(original);
+			const firstNameReplacement = original.last.reduce((prev, curr) => curr.startsWith("(") ? curr.replace(/\((\w+)\)/g, "$1") : prev, "");
+			names.first = firstNameReplacement;
+			i = -1;
+			return [names, i];
 		}
 	]
 	// if (cache.professorData[name]) return cache.professorData[name];
 	// console.log(name)
 	name = name.replace(/(\s+)[A-Z]\.(\s+)/g, "$1"); // Remove middle initials
 	name = name.replace(/\w{2,}\./g, ""); // Remove prefixes
-	let names = getNamesArray(name);
-	console.log(names);
+	const original = getNamesArray(name);
+	let names = resetName(original);
+	// console.log(names);
 	const professorData = await new Promise(async (res, rej) => {
 		const school = await ratings.default.searchSchool("Monmouth University");
 		// console.log("Searching " + name);
+		let teachers;
 		for (let i = 0; i < nameMutations.length; i++) {
 			const name = names.first + " " + names.last[0];
-			console.log("Searching ", names);
-			const teachers = await ratings.default.searchTeacher(name, school[0].id).catch(err => console.log(err));
+			// console.log("Searching ", name);
+			teachers = await ratings.default.searchTeacher(name, school[0].id).catch(err => console.log(err));
 			if (!teachers || teachers.length == 0) {
-				names = nameMutations[i](names, i);
+				[names, i] = nameMutations[i](names, i, original);
 				continue;
 			}
-			console.log(teachers);
+			// console.log(teachers);
 			break;
 		}
-		return res();
+		if (!teachers || teachers.length == 0) return res();
 		const teacherID = (() => {
 			for (const teacher of teachers) {
 				// console.log(teacher)
