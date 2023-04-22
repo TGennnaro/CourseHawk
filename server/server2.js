@@ -24,13 +24,13 @@ const cache = {
 // console.log(await getProfessorData("Robert Scott III"));
 // console.log(await getProfessorData("Patrick L. O'Halloran"));
 console.log(await getProfessorData("Felix De Jesus")); // in rmp as Felix Dejesus
-console.log(await getProfessorData("Dr. Deanna Shoemaker")); // in rmp as Deanna Shoemaker
+// console.log(await getProfessorData("Dr. Deanna Shoemaker")); // in rmp as Deanna Shoemaker
 console.log(await getProfessorData("Wai Kong (Johnny) Pang")); // in rmp as Wai Kong Pang
 console.log(await getProfessorData("Chiu-Yin (Cathy) Wong")); // in rmp as Cathy Wong
 console.log(await getProfessorData("Carol McArthur-Amedeo")); // in rmp as Carol McArthur
 console.log(await getProfessorData("Elizabeth Gilmartin-Keating")); // in rmp as Elizabeth Gilmartin
 console.log(await getProfessorData("Lynn Kraemer-Siracusa")); // in rmp as Lynn Siracusa
-console.log(await getProfessorData("Jennifer Har")); // in rmp as Lynn Siracusa
+// console.log(await getProfessorData("Jennifer Har")); // in rmp as Lynn Siracusa
 
 
 // scrapeWebData();
@@ -352,20 +352,36 @@ function saveProfessor(data) {
 }
 
 async function getProfessorData(name) {
+	const nameMutations = [
+		(names) => { return names },
+		(names, i) => {
+			names.last = names.last.slice(1);
+			console.log("names", names.last)
+			if (names.last.length > 0) i--;
+			return names;
+		}
+	]
 	// if (cache.professorData[name]) return cache.professorData[name];
 	// console.log(name)
 	name = name.replace(/(\s+)[A-Z]\.(\s+)/g, "$1"); // Remove middle initials
-	const nameSplit = name.split(" ");
-	name = nameSplit[0].substring(0, 2) + " " + nameSplit.slice(1).join(" "); // Only take first 2 letters of first name (avoids spelling mistakes)
-	// const nameSplit = name.split(" ");
-	// const firstName = nameSplit.length > 1 ? nameSplit[0] : null;
-	// const lastName = nameSplit[1] || nameSplit[0];
-	// const defaultReturn = { firstName: firstName || "", lastName }; // If professor name is just last name, ensure firstName is ""
+	name = name.replace(/\w{2,}\./g, ""); // Remove prefixes
+	let names = getNamesArray(name);
+	console.log(names);
 	const professorData = await new Promise(async (res, rej) => {
 		const school = await ratings.default.searchSchool("Monmouth University");
 		// console.log("Searching " + name);
-		const teachers = await ratings.default.searchTeacher(name, school[0].id).catch(err => console.log(err));
-		if (!teachers || teachers.length == 0) return res();
+		for (let i = 0; i < nameMutations.length; i++) {
+			const name = names.first + " " + names.last[0];
+			console.log("Searching ", names);
+			const teachers = await ratings.default.searchTeacher(name, school[0].id).catch(err => console.log(err));
+			if (!teachers || teachers.length == 0) {
+				names = nameMutations[i](names, i);
+				continue;
+			}
+			console.log(teachers);
+			break;
+		}
+		return res();
 		const teacherID = (() => {
 			for (const teacher of teachers) {
 				// console.log(teacher)
