@@ -3,3 +3,5 @@
 ### Find courses at MU based on peer reviews
 
 This project is still in development.
+
+Demo is available on [Vercel](https://course-hawk.vercel.app/)
