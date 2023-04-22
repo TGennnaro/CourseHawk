@@ -13,9 +13,8 @@ const cache = {
 	matchTime: []
 }
 
-// const pb = new PocketBase("http://127.0.0.1:8090");
-
-// const admin = await pb.admins.authWithPassword(process.env.PB_EMAIL, process.env.PB_PASSWORD);
+const pb = new PocketBase("https://coursehawk-pocketbase.fly.dev");
+const admin = await pb.admins.authWithPassword(process.env.PB_EMAIL, process.env.PB_PASSWORD);
 
 // console.log(await getProfessorData("B Werther-Rosenow"));
 // console.log(await getProfessorData("Ke Sansevere"));
@@ -260,11 +259,24 @@ async function scrapeWebData() {
 				+ (data ? "✅" : "❌"));
 				// console.log((data ? "D" : "No d") + "ata received after ", (Date.now() - startTime) / 1000, "seconds");
 				startTime = Date.now();
-				// save professor
+				// cache the professor
 				if (cache.professor[professor])
 					cache.professor[professor][courseType] = { name, data };
 				else
 					cache.professor[professor] = { [courseType]: { name, data } };
+
+				// save the professor
+				const insertData = {
+					name,
+					legacyId: data.legacyId || -1,
+					searchId: data.id || "",
+					department: data.department || "",
+					rating: data.avgRating || -1,
+					numRatings: data.numRatings || -1,
+					difficulty: data.avgDifficulty || -1,
+					takeAgain: data.wouldTakeAgainPercent || -1
+				}
+				const recordID = await saveProfessor(insertData);
 			}
 			continue;
 
