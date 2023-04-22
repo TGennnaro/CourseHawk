@@ -337,43 +337,38 @@ function saveProfessor(data) {
 }
 
 async function getProfessorData(name) {
-	function resetName(nameObj) {
-		const names = Object.assign({}, nameObj);
+	name = name.replace(/(\s+)[A-Z]\.(\s+)/g, "$1"); // Remove middle initials
+	name = name.replace(/\w{2,}\./g, ""); // Remove prefixes (Dr.)
+	const original = getNamesArray(name); // Keep a copy of the original names array
+	function resetName() { // Create a copy of the original names array
+		const names = Object.assign({}, original);
 		names.last = names.last.filter(n => !n.startsWith("("));
 		return names;
 	}
 	const nameMutations = [
 		(names, i) => {
-			names.last = names.last.slice(1);
+			names.last = names.last.slice(1); // Remove a last name until there is only 1
 			if (names.last.length > 1) i--;
 			return [names, i];
 		},
-		(names, i, original) => {
+		(names, i, original) => { // If there is a preferred name (in parentheses), set that as the first name and try last name variations again
 			if (names.first != original.first) return [names, i];
-			names = resetName(original);
+			names = resetName();
 			const firstNameReplacement = original.last.reduce((prev, curr) => curr.startsWith("(") ? curr.replace(/\((\w+)\)/g, "$1") : prev, "");
 			names.first = firstNameReplacement;
 			i = -1;
 			return [names, i];
 		}
 	]
-	// if (cache.professorData[name]) return cache.professorData[name];
-	// console.log(name)
-	name = name.replace(/(\s+)[A-Z]\.(\s+)/g, "$1"); // Remove middle initials
-	name = name.replace(/\w{2,}\./g, ""); // Remove prefixes
-	const original = getNamesArray(name);
-	let names = resetName(original);
-	// console.log(names);
+	let names = resetName();
 	const professorData = await new Promise(async (res, rej) => {
 		const school = await ratings.default.searchSchool("Monmouth University");
-		// console.log("Searching " + name);
 		let teachers;
 		for (let i = 0; i < nameMutations.length; i++) {
 			const name = names.first + " " + names.last[0];
-			// console.log("Searching ", name);
-			teachers = await ratings.default.searchTeacher(name, school[0].id).catch(err => console.log(err));
+			teachers = await ratings.default.searchTeacher(name, school[0].id).catch(err => console.log(err)); // search the RMP GraphQL API
 			if (!teachers || teachers.length == 0) {
-				[names, i] = nameMutations[i](names, i, original);
+				[names, i] = nameMutations[i](names, i, original); // mutate the name
 				continue;
 			}
 			// console.log(teachers);
