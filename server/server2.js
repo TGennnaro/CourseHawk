@@ -268,15 +268,26 @@ async function scrapeWebData() {
 				// save the professor
 				const insertData = {
 					name,
-					legacyId: data.legacyId || -1,
-					searchId: data.id || "",
-					department: data.department || "",
-					rating: data.avgRating || -1,
-					numRatings: data.numRatings || -1,
-					difficulty: data.avgDifficulty || -1,
-					takeAgain: data.wouldTakeAgainPercent || -1
+					legacyId: data?.legacyId || -1,
+					searchId: data?.id || "",
+					department: data?.department || "",
+					rating: data?.avgRating || -1,
+					numRatings: data?.numRatings || -1,
+					difficulty: data?.avgDifficulty || -1,
+					takeAgain: data?.wouldTakeAgainPercent || -1
 				}
-				const recordID = await saveProfessor(insertData);
+				const records = await pb.collection("professors").getFullList({
+					filter: `legacyId = "${data?.legacyId || 0}"
+					|| name = "${insertData.name}"`
+				});
+				if (records.length > 0) {
+					if (records[0].legacyId > 0 && !data.legacyId) continue; // If the record is correct but the scraped data is not, don't update
+					await pb.collection("professors").update(records[0].id, insertData);
+					console.log(`Updated ${name} with new data ❔`);
+					continue;
+				}
+				const id = (await pb.collection("professors").create(insertData)).id;
+				console.log(`Saved ${name} to record ${id} ✅`);
 			}
 			continue;
 
