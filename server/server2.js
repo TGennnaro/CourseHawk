@@ -221,17 +221,19 @@ async function scrapeWebData() {
 			const courseBase = courseNo.split("-").slice(0, 2).join("-");
 			const courseType = courseNo.split("-")[0];
 
-			const courseName = await parseCourseNameFromID(courseNo, courseRaw.split("<br>")[1]);
+			const courseLink = await parseCourseLinkFromRow(page, fields);
+			const courseName = await parseCourseName(courseLink);
 			const professors = await parseProfessorsFromRow(page, fields);
 			const credits = await parseCreditsFromRow(page, fields);
 			const term = await parseTermFromRow(page, fields);
 
-			// const professorData = [];
+			const professorIDs = [];
 			for (const professor of professors) {
 				if (professor.toLowerCase().includes("unassign")) continue; // We don't care about unassigned professors
 				if (cache.professor[professor]?.[courseType]) {
 					console.log(i + ". Data for " + professor + " [" + courseNo + "] is cached, skipping after ", timeElapsed(startTime), " seconds "
 						+ (cache.professor[professor][courseType].data ? "✅" : "❔"));
+					professorIDs.push(cache.professor[professor][courseType].id);
 					continue;
 				}
 				const name = await matchProfessor(professor, courseBase);
@@ -259,11 +261,6 @@ async function scrapeWebData() {
 				+ (data ? "✅" : "❌"));
 				// console.log((data ? "D" : "No d") + "ata received after ", (Date.now() - startTime) / 1000, "seconds");
 				startTime = Date.now();
-				// cache the professor
-				if (cache.professor[professor])
-					cache.professor[professor][courseType] = { name, data };
-				else
-					cache.professor[professor] = { [courseType]: { name, data } };
 
 				// save the professor
 				const insertData = {
@@ -287,38 +284,36 @@ async function scrapeWebData() {
 					continue;
 				}
 				const id = (await pb.collection("professors").create(insertData)).id;
+				professorIDs.push(id);
 				console.log(`Saved ${name} to record ${id} ✅`);
-			}
-			continue;
 
+				// cache the professor
+				if (cache.professor[professor])
+					cache.professor[professor][courseType] = { name, data, id };
+				else
+					cache.professor[professor] = { [courseType]: { name, data, id } };
+			}
 			// console.log(courseNo, courseName, professorData, credits, term);
-
-			// Save the professor data to get recordID
-			for (const data of professorData) {
-				const name = data.firstName + " " + data.lastName;
-				if (updatedProfessors[name]) continue;
-				const recordID = await saveProfessor(data);
-				updatedProfessors[name] = recordID;
-			}
 
 			// Save the course
 			const courseData = {
 				number: courseNo,
-				professor: professorData.map(data => updatedProfessors[data.firstName + " " + data.lastName]),
+				professor: professorIDs,
 				name: courseName,
 				term,
 				credits
-			}
-			const records = await pb.collection("classes").getFullList({
+			};
+			const records = await pb.collection("courses").getFullList({
 				filter: `number = "${courseNo}" && term = "${term}"`
 			});
 			if (records.length > 0) {
-				await pb.collection("classes").update(records[0].id, courseData);
+				const courseID = (await pb.collection("courses").update(records[0].id, courseData)).id;
+				console.log(`Updated ${courseNo} with new data ❔`);
 				continue;
 			}
-			await pb.collection("classes").create(courseData);
+			const courseID = (await pb.collection("courses").create(courseData)).id;
 
-			console.log("Saved " + courseNo);
+			console.log(`Saved ${courseNo} to record ${courseID} ✅`);
 		}
 		console.log("Scrape has completed.");
 		const totalTime = Math.round(cache.matchTime.reduce((a, b) => a + b, 0) * 100) / 100;
@@ -443,17 +438,22 @@ function parseTermFromRow(page, row) {
 	});
 }
 
-function parseCourseNameFromID(id, backup) {
-	const raw = id.split("-").slice(0, 2); 	// AB-100-01
-	const baseID = raw.join("_"); 					// AB-100
+function parseCourseLinkFromRow(page, row) {
+	return new Promise(async (res, rej) => {
+		const link = await page.evaluate(cell => cell.querySelector("a").href, row[0]);
+		res(link.replace(/javascript:Openpopup\('(.*)%27\)/g, "$1"));
+	});
+}
+
+function parseCourseName(link) {
 	return new Promise(async (res, rej) => {
 		function cacheName(name) {
-			cache.courseName[baseID] = name;
+			cache.courseName[link] = name;
 		}
-		if (cache.courseName[baseID]) {
-			return res(cache.courseName[baseID]);
+		if (cache.courseName[link]) {
+			return res(cache.courseName[link]);
 		}
-		const url = "https://www2.monmouth.edu/muwebadv/wa3/search/CourseDescV2.aspx?Id=" + baseID;
+		const url = "https://www2.monmouth.edu/muwebadv/wa3/search/" + link;
 
 		const browser = await puppeteer.launch();
 		const page = await browser.newPage();
@@ -463,16 +463,16 @@ function parseCourseNameFromID(id, backup) {
 
 		if (!table) {
 			browser.close();
-			cacheName(backup)
-			return res(backup);
+			cacheName(null);
+			return res(null);
 		}
 
 		const row = await table.$$("tr");
 
 		if (row.length < 2) {
 			browser.close();
-			cacheName(backup)
-			return res(backup);
+			cacheName(null);
+			return res(null);
 		}
 
 		const cells = await row[1].$$("td");
