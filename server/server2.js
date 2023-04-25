@@ -4,6 +4,10 @@ dotenv.config();
 import PocketBase from "pocketbase";
 import puppeteer from "puppeteer";
 import ratings from "@mtucourses/rate-my-professors";
+import browser from "./browser.js";
+import nameManager from "./nameManager.js";
+
+const DEBUG_MODE = false;
 
 const cache = {
 	professor: {},
@@ -45,61 +49,20 @@ Array.prototype.filterMap = function (callback) {
 	return result;
 }
 
-function doNamesMatch(name1, name2) {
-	const name1Info = getNamesArray(name1);
-	const name2Info = getNamesArray(name2);
-	if (name1Info.last.length == 0) return name2Info.last.includes(name1Info.first) && 2; // If only a last name is provided, check if name2 has the same last name
-	if (name2Info.last.length == 0) return name1Info.last.includes(name2Info.first) && 2;
-	const lastNamesMatch = findLastNamePair(name1Info.last, name2Info.last);
-	if (!lastNamesMatch) return 0; // No last name matches
-	if (name1Info.first == name2Info.first) return 2; // First names match
-	if (name1Info.first.startsWith(name2Info.first)) return 2; // First name initial matches
-	if (name2Info.first.startsWith(name1Info.first)) return 2;
-	if (name1Info.first.startsWith("b") && name2Info.first.startsWith("w")) return 2; // Bill and Will are interchangable
-	if (name1Info.first.startsWith("w") && name2Info.first.startsWith("b")) return 2;
-	return 1;
-}
-
-function findLastNamePair(name1, name2) {
-	for (let i = 0; i < name1.length; i++) {
-		for (let j = 0; j < name2.length; j++) {
-			if (name1[i] == name2[j]) {
-				return true;
-			}
-		}
+function debug(...args) {
+	if (DEBUG_MODE) {
+		console.log(...args);
 	}
-	return false;
 }
 
-function getNamesArray(name) {
-	name = name.replace("-", " ") // Replace hyphens with spaces
-		.replace("’", "'") // Replace apostrophes with normal ones
-		.toLowerCase() // Make everything lowercase
-		.replace(/(\w)\.(\w)/g, "$1 $2"); // Replace periods with spaces if they are not initials (St.Germain -> St Germain)
-	const nameSplit = name.split(" ");
-	const nameInfo = {
-		first: nameSplit[0].replace(".", ""), // get rid of period in first initial
-		last: nameSplit.slice(1)
-	};
-	return nameInfo;
-}
-
-async function matchProfessor(original, course, noCache = false) {
+async function matchProfessor(original, course) {
 	return new Promise(async (res, rej) => {
 		course = course.replace("-", " "); // Courses are formatted as AB 100
 
-		// Check if the name is cached
-		// const cachedName = checkCache();
-		// if (cachedName) {
-		// 	return res(cachedName);
-		// };
-
-		const browser = await puppeteer.launch();
-		const page = await browser.newPage();
 		const SHOULD_ADD_QUOTE = original.length < 6 && original.includes(" "); // The cutoff to when a name is considered 'short', ie. (X. Li -> X 'Li')
 		// Added %27 to add single quotes around last name. Helps with shorter names.
 		const searchQuery = original.replace(". ", "+" + (SHOULD_ADD_QUOTE ? "%27" : ""));
-		await page.goto(`https://www.monmouth.edu/directory?s=${searchQuery}${SHOULD_ADD_QUOTE ? "%27" : ""}`);
+		const [app, page] = await browser.navigate(`https://www.monmouth.edu/directory?s=${searchQuery}${SHOULD_ADD_QUOTE ? "%27" : ""}`);
 
 		const rawResults = await page.$$(".person-name > a"); // Cannot narrow down results, some matches are the 25th result...
 		const results = await Promise.all(rawResults.map(async result => {
@@ -108,7 +71,7 @@ async function matchProfessor(original, course, noCache = false) {
 			return { name: name.split(",")[0], link }; // get the name and page link (in case of deep search)
 		}));
 		const filtered = results.filter(result => {
-			result.match = doNamesMatch(original, result.name); // Check if the name matches
+			result.match = nameManager.match(original, result.name); // Check if the name matches
 			return (result.match > 0); // Only get the matches that are either full (2) or partial (1)
 		});
 
@@ -124,15 +87,15 @@ async function matchProfessor(original, course, noCache = false) {
 				(check.length == 1 && matchPriority == 1)) { // If there is only one match, but it is a partial match, deep search the page
 				const deepMatches = await deepSearch(check);
 				if (deepMatches.length > 1) { // If there are still multiple, take the first but log to console
-					console.log("Multiple results found for " + original + " after deep search:", deepMatches);
+					console.log(`Multiple results found for ${original} after deep search:`, deepMatches);
 				}
-				browser.close();
+				app.close();
 				if (deepMatches.length == 0 && matchPriority == 2)
 					return res(check[0].name); // If there are no matches, cache the original name
 				res(deepMatches[0]?.name || null);
 				return;
 			} else if (check.length == 1) { // If there is only 1 match, use it
-				browser.close();
+				app.close();
 				res(check[0].name);
 				return;
 			} else {
@@ -140,12 +103,12 @@ async function matchProfessor(original, course, noCache = false) {
 			}
 		}
 		// No matches were found, try other last name combinations
-		const names = getNamesArray(original);
+		const names = nameManager.objectify(original);
 		if (names.last.length > 1) {
 			for (let name of names.last) {
 				const match = await matchProfessor([names.first, name].join(" "), course, true);
 				if (match) {
-					browser.close();
+					app.close();
 					res(match);
 					return;
 				}
@@ -154,17 +117,17 @@ async function matchProfessor(original, course, noCache = false) {
 		if (original.search(/[a-z][A-Z]/) != -1) { // Try splitting last names if there is a capital letter in the middle (DeJesus -> De Jesus)
 			const match = await matchProfessor(original.replace(/([a-z])([A-Z])/g, "$1 $2"), course, true);
 			if (match) {
-				browser.close();
+				app.close();
 				res(match);
 				return;
 			}
 		}
 		// No matches at all. Return null.
-		browser.close();
+		app.close();
 		res(null);
 
 		function deepSearch(names) {
-			console.log("Deep searching for " + original + "...");
+			console.log(`Deep searching for ${original}...`);
 			return new Promise(async (res, rej) => {
 				const deepMatches = [];
 				for (const result of names) {
@@ -179,19 +142,12 @@ async function matchProfessor(original, course, noCache = false) {
 				res(deepMatches);
 			});
 		}
-		function checkCache() {
-			const courseType = course.split(" ")[0];
-			// Check if the name is cached already
-			return cache.professorMatch[original]?.[courseType];
-		}
 	});
 }
 
 async function scrapeWebData() {
 	return new Promise(async (res, rej) => {
-		const browser = await puppeteer.launch();
-		const page = await browser.newPage();
-		await page.goto("https://www2.monmouth.edu/muwebadv/wa3/search/SearchClassesv2.aspx");
+		const [app, page] = await browser.navigate("https://www2.monmouth.edu/muwebadv/wa3/search/SearchClassesv2.aspx");
 
 		await page.select("#MainContent_ddlTerm", "23/FA");
 
@@ -201,7 +157,7 @@ async function scrapeWebData() {
 			.then(() => console.log("Page has navigated..."))
 			.catch(() => {
 				console.log("Page failed to navigate, retrying...");
-				browser.close();
+				app.close();
 				return scrapeWebData();
 			});
 
@@ -230,7 +186,7 @@ async function scrapeWebData() {
 			const professorIDs = [];
 			for (const professor of professors) {
 				if (professor.toLowerCase().includes("unassign")) continue; // We don't care about unassigned professors
-				if (cache.professor[professor]?.[courseType]) {
+				if (cache.professor[professor]?.[courseType]?.id) {
 					console.log(i + ". Data for " + professor + " [" + courseNo + "] is cached, skipping after ", timeElapsed(startTime), " seconds "
 						+ (cache.professor[professor][courseType].data ? "✅" : "❔"));
 					professorIDs.push(cache.professor[professor][courseType].id);
@@ -281,6 +237,7 @@ async function scrapeWebData() {
 					if (records[0].legacyId > 0 && !data.legacyId) continue; // If the record is correct but the scraped data is not, don't update
 					await pb.collection("professors").update(records[0].id, insertData);
 					console.log(`Updated ${name} with new data ❔`);
+					professorIDs.push(records[0].id);
 					continue;
 				}
 				const id = (await pb.collection("professors").create(insertData)).id;
@@ -307,7 +264,7 @@ async function scrapeWebData() {
 				filter: `number = "${courseNo}" && term = "${term}"`
 			});
 			if (records.length > 0) {
-				const courseID = (await pb.collection("courses").update(records[0].id, courseData)).id;
+				await pb.collection("courses").update(records[0].id, courseData);
 				console.log(`Updated ${courseNo} with new data ❔`);
 				continue;
 			}
@@ -323,7 +280,7 @@ async function scrapeWebData() {
 			Object.values(entry[1]).some(type => type.data == null) ? entry[0] : null
 		));
 
-		browser.close();
+		app.close();
 	});
 }
 

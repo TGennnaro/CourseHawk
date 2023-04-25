@@ -1,22 +1,24 @@
 import puppeteer from "puppeteer";
 
-let browser;
+const MAX_RETRIES = 3;
 
-function navigate(url) {
+function navigate(url, retries = 0) {
 	return new Promise(async (res, rej) => {
-		browser = await puppeteer.launch();
+		const browser = await puppeteer.launch();
 		const page = await browser.newPage();
 		await page.goto(url);
-		await page.waitForNavigation()
-			.catch(err => rej(err));
-		res(page);
+		// await page.waitForNavigation()
+		// 	.catch(err => {
+		// 		if (retries <= MAX_RETRIES) {
+		// 			retries++;
+		// 			console.log("Failed navigation, retrying...");
+		// 			navigate(url, retries);
+		// 		} else {
+		// 			rej(err);
+		// 		}
+		// 	});
+		res([browser, page]);
 	});
 }
 
-function close() {
-	browser?.close();
-}
-
-async function getAttribute(page, el, attr) {
-	return await page.evaluate(element => element[attr], el);
-}
+export default { navigate, getAttribute };
