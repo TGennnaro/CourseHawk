@@ -4,4 +4,4 @@
 
 This project is still in development.
 
-Demo is available on [Vercel](https://course-hawk.vercel.app/)
+Demo is available on [Vercel](https://coursehawk.vercel.app/)
