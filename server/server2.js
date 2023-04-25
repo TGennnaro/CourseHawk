@@ -36,7 +36,7 @@ const admin = await pb.admins.authWithPassword(process.env.PB_EMAIL, process.env
 // console.log(await getProfessorData("Jennifer Har")); // in rmp as Lynn Siracusa
 
 
-scrapeWebData();
+run();
 
 Array.prototype.filterMap = function (callback) {
 	const result = [];
@@ -145,7 +145,7 @@ async function matchProfessor(original, course) {
 	});
 }
 
-async function scrapeWebData() {
+async function run() {
 	return new Promise(async (res, rej) => {
 		const [app, page] = await browser.navigate("https://www2.monmouth.edu/muwebadv/wa3/search/SearchClassesv2.aspx");
 
@@ -158,7 +158,7 @@ async function scrapeWebData() {
 			.catch(() => {
 				console.log("Page failed to navigate, retrying...");
 				app.close();
-				return scrapeWebData();
+				return run();
 			});
 
 		const rows = await page.$$("#MainContent_dgdSearchResult tr");
