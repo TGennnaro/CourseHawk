@@ -15,6 +15,7 @@
     "@mtucourses/rate-my-professors": "^2.2.0",
     "dotenv": "^16.0.3",
     "node-fetch": "^3.3.1",
+    "p-limit": "^4.0.0",
     "pocketbase": "^0.13.1",
     "puppeteer": "^19.8.2"
   }

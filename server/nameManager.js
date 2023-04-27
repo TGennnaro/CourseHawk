@@ -1,6 +1,6 @@
 function match(name1, name2) {
-	const name1Info = getNamesArray(name1);
-	const name2Info = getNamesArray(name2);
+	const name1Info = objectify(name1);
+	const name2Info = objectify(name2);
 	if (name1Info.last.length == 0) return name2Info.last.includes(name1Info.first) && 2; // If only a last name is provided, check if name2 has the same last name
 	if (name2Info.last.length == 0) return name1Info.last.includes(name2Info.first) && 2;
 	const lastNamesMatch = pairLastNames(name1Info.last, name2Info.last);

@@ -4,6 +4,7 @@ dotenv.config();
 import PocketBase from "pocketbase";
 import puppeteer from "puppeteer";
 import ratings from "@mtucourses/rate-my-professors";
+import pLimit from "p-limit";
 import browser from "./browser.js";
 import nameManager from "./nameManager.js";
 
@@ -11,11 +12,13 @@ const DEBUG_MODE = false;
 
 const cache = {
 	professor: {},
+	matchQueue: {},
 	// professorMatch: {},
 	// professorData: {},
 	courseName: {},
 	matchTime: []
 }
+const limit = pLimit(8);
 
 const pb = new PocketBase("https://coursehawk-pocketbase.fly.dev");
 const admin = await pb.admins.authWithPassword(process.env.PB_EMAIL, process.env.PB_PASSWORD);
@@ -34,7 +37,6 @@ const admin = await pb.admins.authWithPassword(process.env.PB_EMAIL, process.env
 // console.log(await getProfessorData("Elizabeth Gilmartin-Keating")); // in rmp as Elizabeth Gilmartin
 // console.log(await getProfessorData("Lynn Kraemer-Siracusa")); // in rmp as Lynn Siracusa
 // console.log(await getProfessorData("Jennifer Har")); // in rmp as Lynn Siracusa
-
 
 run();
 
@@ -56,6 +58,7 @@ function debug(...args) {
 }
 
 async function matchProfessor(original, course) {
+	if (cache.matchQueue[original]) return null;
 	return new Promise(async (res, rej) => {
 		course = course.replace("-", " "); // Courses are formatted as AB 100
 
@@ -147,139 +150,176 @@ async function matchProfessor(original, course) {
 
 async function run() {
 	return new Promise(async (res, rej) => {
+		let start = Date.now();
+		const courses = await getWebCourses();
+		console.log("Got web courses in ", timeElapsed(start), " seconds");
+		start = Date.now();
+		const professors = {};
+		await Promise.all(courses.slice(0, 100).map(async (course, index) => {
+			return limit(async () => {
+				console.log(`Working on ${index}`);
+				for (const professor of course.professors) {
+					const data = await getProfessorData(professor, course.type);
+					if (data) professors[data.name] = data;
+				}
+			});
+		}));
+		console.log("Finished in ", timeElapsed(start), " seconds");
+		console.log(professors);
+		return res();
+	});
+}
+
+async function getProfessorData(name, course) {
+	if (name.toLowerCase().includes("unassign")) return;
+	if (cache.professor[name]?.[course]) return;
+
+	cache.professor[name] = cache.professor[name] || {};
+	cache.professor[name][course] = true;
+
+	const fullName = await matchProfessor(name, course);
+
+	return fullName;
+}
+// 		let startTime = Date.now();
+
+// 		const professorIDs = [];
+// 		for (const professor of course.professors) {
+// 			if (professor.toLowerCase().includes("unassign")) continue; // We don't care about unassigned professors
+// 			if (cache.professor[professor]?.[course.type]?.id) {
+// 				console.log(i + ". Data for " + professor + " [" + course.number + "] is cached, skipping after ", timeElapsed(startTime), " seconds "
+// 					+ (cache.professor[professor][course.type].data ? "✅" : "❔"));
+// 				professorIDs.push(cache.professor[professor][course.type].id);
+// 				continue;
+// 			}
+// 			const name = await matchProfessor(professor, course.base);
+// 			const matchTime = timeElapsed(startTime); // time the match took in seconds
+// 			cache.matchTime.push(matchTime); // push to cache for average later
+// 			if (!name) { // If no match was found, log to console and skip
+// 				console.log("--------------------- No match for " + professor + " [" + course.number + "] after ", matchTime, " seconds --------------------- ");
+// 				if (cache.professor[professor])
+// 					cache.professor[professor][course.type] = { data: null };
+// 				else
+// 					cache.professor[professor] = { [course.type]: { data: null } };
+// 				continue;
+// 			}
+// 			// console.log(i + ". Matched " + professor + " to " + name + " [" + courseNo + "] after ", timeTook, "seconds");
+// 			startTime = Date.now(); // change start time in case of two professors. Will be reset at start of loop otherwise
+// 			let data = await getProfessorData(name);
+// 			if (!data && !name.startsWith(professor.substring(0, 1))) { // If not found but the matched name has a different first initial, try the original initial
+// 				data = await getProfessorData([professor.substring(0, 1), name.split(" ", 2)[1]].join(" "));
+// 			}
+// 			// console.log(data);
+// 			const dataTime = timeElapsed(startTime); // time the data took in seconds
+// 			console.log(i + ". Matched " + professor + " to " + name + " [" + course.number + "] after ", matchTime, "seconds. "
+// 				+ (data ? "D" : "No d") + "ata received for "
+// 				+ (data ? [data.firstName, data.lastName].join(" ") : name) + " after ", dataTime, "seconds "
+// 			+ (data ? "✅" : "❌"));
+// 			// console.log((data ? "D" : "No d") + "ata received after ", (Date.now() - startTime) / 1000, "seconds");
+// 			startTime = Date.now();
+
+// 			// save the professor
+// 			const insertData = {
+// 				name,
+// 				legacyId: data?.legacyId || -1,
+// 				searchId: data?.id || "",
+// 				department: data?.department || "",
+// 				rating: data?.avgRating || -1,
+// 				numRatings: data?.numRatings || -1,
+// 				difficulty: data?.avgDifficulty || -1,
+// 				takeAgain: data?.wouldTakeAgainPercent || -1
+// 			}
+// 			const records = await pb.collection("professors").getFullList({
+// 				filter: `legacyId = "${data?.legacyId || 0}"
+// 					|| name = "${insertData.name}"`
+// 			});
+// 			if (records.length > 0) {
+// 				if (records[0].legacyId > 0 && !data.legacyId) continue; // If the record is correct but the scraped data is not, don't update
+// 				await pb.collection("professors").update(records[0].id, insertData);
+// 				console.log(`Updated ${name} with new data ❔`);
+// 				professorIDs.push(records[0].id);
+// 				continue;
+// 			}
+// 			const id = (await pb.collection("professors").create(insertData)).id;
+// 			professorIDs.push(id);
+// 			console.log(`Saved ${name} to record ${id} ✅`);
+
+// 			// cache the professor
+// 			if (cache.professor[professor])
+// 				cache.professor[professor][course.type] = { name, data, id };
+// 			else
+// 				cache.professor[professor] = { [course.type]: { name, data, id } };
+// 		}
+// 		// console.log(courseNo, courseName, professorData, credits, term);
+
+// 		// Save the course
+// 		const courseData = {
+// 			number: course.number,
+// 			professor: professorIDs,
+// 			name: course.name,
+// 			term: course.term,
+// 			credits: course.credits
+// 		};
+// 		const records = await pb.collection("courses").getFullList({
+// 			filter: `number = "${course.number}" && term = "${course.term}"`
+// 		});
+// 		if (records.length > 0) {
+// 			await pb.collection("courses").update(records[0].id, courseData);
+// 			console.log(`Updated ${course.number} with new data ❔`);
+// 			// continue;
+// 		}
+// 		const courseID = (await pb.collection("courses").create(courseData)).id;
+
+// 		console.log(`Saved ${course.number} to record ${courseID} ✅`);
+// 		console.log("Scrape has completed.");
+// 		const totalTime = Math.round(cache.matchTime.reduce((a, b) => a + b, 0) * 100) / 100;
+// 		console.log("Average match time: ", Math.round(totalTime / cache.matchTime.length * 100) / 100, "seconds");
+// 		console.log("Total match time: ", totalTime, "seconds (", Math.round(totalTime / 60 * 100) / 100, " minutes)");
+// 		console.log("Professors without a name match: ", Object.entries(cache.professor).filterMap(entry =>
+// 			Object.values(entry[1]).some(type => type.data == null) ? entry[0] : null
+// 		));
+
+// 		app.close();
+// 	});
+// }
+
+function getWebCourses() {
+	return new Promise(async (res, rej) => {
 		const [app, page] = await browser.navigate("https://www2.monmouth.edu/muwebadv/wa3/search/SearchClassesv2.aspx");
 
 		await page.select("#MainContent_ddlTerm", "23/FA");
-
 		await page.click("#MainContent_btnSubmit");
-
 		await page.waitForNavigation()
 			.then(() => console.log("Page has navigated..."))
 			.catch(() => {
 				console.log("Page failed to navigate, retrying...");
 				app.close();
-				return run();
+				return getWebCourses();
 			});
 
 		const rows = await page.$$("#MainContent_dgdSearchResult tr");
-		const START = 1; // default: 1
-		const ITERATIONS = rows.length;
-		const updatedProfessors = {};
-		console.log("Scraping data for " + (ITERATIONS - START) + " courses...");
-		for (let i = START; i < ITERATIONS; i++) {
-			let startTime = Date.now();
-			const row = rows[i];
+		const courses = await Promise.all(rows.map(async (row, index) => {
 			const fields = await row.$$("td");
-
-			const courseCell = await fields[0].$("span");
-			const courseRaw = await page.evaluate(el => el.innerHTML, courseCell);
-			const courseNo = courseRaw.split("<br>")[0];
-			const courseBase = courseNo.split("-").slice(0, 2).join("-");
-			const courseType = courseNo.split("-")[0];
-
-			const courseLink = await parseCourseLinkFromRow(page, fields);
-			const courseName = await parseCourseName(courseLink);
-			const professors = await parseProfessorsFromRow(page, fields);
-			const credits = await parseCreditsFromRow(page, fields);
-			const term = await parseTermFromRow(page, fields);
-
-			const professorIDs = [];
-			for (const professor of professors) {
-				if (professor.toLowerCase().includes("unassign")) continue; // We don't care about unassigned professors
-				if (cache.professor[professor]?.[courseType]?.id) {
-					console.log(i + ". Data for " + professor + " [" + courseNo + "] is cached, skipping after ", timeElapsed(startTime), " seconds "
-						+ (cache.professor[professor][courseType].data ? "✅" : "❔"));
-					professorIDs.push(cache.professor[professor][courseType].id);
-					continue;
-				}
-				const name = await matchProfessor(professor, courseBase);
-				const matchTime = timeElapsed(startTime); // time the match took in seconds
-				cache.matchTime.push(matchTime); // push to cache for average later
-				if (!name) { // If no match was found, log to console and skip
-					console.log("--------------------- No match for " + professor + " [" + courseNo + "] after ", matchTime, " seconds --------------------- ");
-					if (cache.professor[professor])
-						cache.professor[professor][courseType] = { data: null };
-					else
-						cache.professor[professor] = { [courseType]: { data: null } };
-					continue;
-				}
-				// console.log(i + ". Matched " + professor + " to " + name + " [" + courseNo + "] after ", timeTook, "seconds");
-				startTime = Date.now(); // change start time in case of two professors. Will be reset at start of loop otherwise
-				let data = await getProfessorData(name);
-				if (!data && !name.startsWith(professor.substring(0, 1))) { // If not found but the matched name has a different first initial, try the original initial
-					data = await getProfessorData([professor.substring(0, 1), name.split(" ", 2)[1]].join(" "));
-				}
-				// console.log(data);
-				const dataTime = timeElapsed(startTime); // time the data took in seconds
-				console.log(i + ". Matched " + professor + " to " + name + " [" + courseNo + "] after ", matchTime, "seconds. "
-					+ (data ? "D" : "No d") + "ata received for "
-					+ (data ? [data.firstName, data.lastName].join(" ") : name) + " after ", dataTime, "seconds "
-				+ (data ? "✅" : "❌"));
-				// console.log((data ? "D" : "No d") + "ata received after ", (Date.now() - startTime) / 1000, "seconds");
-				startTime = Date.now();
-
-				// save the professor
-				const insertData = {
-					name,
-					legacyId: data?.legacyId || -1,
-					searchId: data?.id || "",
-					department: data?.department || "",
-					rating: data?.avgRating || -1,
-					numRatings: data?.numRatings || -1,
-					difficulty: data?.avgDifficulty || -1,
-					takeAgain: data?.wouldTakeAgainPercent || -1
-				}
-				const records = await pb.collection("professors").getFullList({
-					filter: `legacyId = "${data?.legacyId || 0}"
-					|| name = "${insertData.name}"`
-				});
-				if (records.length > 0) {
-					if (records[0].legacyId > 0 && !data.legacyId) continue; // If the record is correct but the scraped data is not, don't update
-					await pb.collection("professors").update(records[0].id, insertData);
-					console.log(`Updated ${name} with new data ❔`);
-					professorIDs.push(records[0].id);
-					continue;
-				}
-				const id = (await pb.collection("professors").create(insertData)).id;
-				professorIDs.push(id);
-				console.log(`Saved ${name} to record ${id} ✅`);
-
-				// cache the professor
-				if (cache.professor[professor])
-					cache.professor[professor][courseType] = { name, data, id };
-				else
-					cache.professor[professor] = { [courseType]: { name, data, id } };
-			}
-			// console.log(courseNo, courseName, professorData, credits, term);
-
-			// Save the course
-			const courseData = {
-				number: courseNo,
-				professor: professorIDs,
-				name: courseName,
-				term,
-				credits
+			const courseInfo = await fields[0].$("span");
+			if (!courseInfo) return;
+			const courseNumberRaw = await page.evaluate(el => el.innerHTML, courseInfo);
+			const courseNumber = courseNumberRaw.split("<br>")[0];
+			const courseInfoLink = await parseCourseLinkFromRow(page, fields);
+			const json = {
+				number: courseNumberRaw.split("<br>")[0],
+				base: courseNumber.split("-").slice(0, 2).join("-"),
+				type: courseNumber.split("-")[0],
+				link: courseInfoLink,
+				// name: await parseCourseName(courseInfoLink), // currently crashes computer due to 1500 instances of chrome opening simultaneously
+				professors: await parseProfessorsFromRow(page, fields),
+				credits: await parseCreditsFromRow(page, fields),
+				term: await parseTermFromRow(page, fields),
 			};
-			const records = await pb.collection("courses").getFullList({
-				filter: `number = "${courseNo}" && term = "${term}"`
-			});
-			if (records.length > 0) {
-				await pb.collection("courses").update(records[0].id, courseData);
-				console.log(`Updated ${courseNo} with new data ❔`);
-				continue;
-			}
-			const courseID = (await pb.collection("courses").create(courseData)).id;
+			return json;
+		}));
+		courses.splice(0, 1); // The first row is the header
 
-			console.log(`Saved ${courseNo} to record ${courseID} ✅`);
-		}
-		console.log("Scrape has completed.");
-		const totalTime = Math.round(cache.matchTime.reduce((a, b) => a + b, 0) * 100) / 100;
-		console.log("Average match time: ", Math.round(totalTime / cache.matchTime.length * 100) / 100, "seconds");
-		console.log("Total match time: ", totalTime, "seconds (", Math.round(totalTime / 60 * 100) / 100, " minutes)");
-		console.log("Professors without a name match: ", Object.entries(cache.professor).filterMap(entry =>
-			Object.values(entry[1]).some(type => type.data == null) ? entry[0] : null
-		));
-
+		res(courses);
 		app.close();
 	});
 }
@@ -311,61 +351,61 @@ function saveProfessor(data) {
 	});
 }
 
-async function getProfessorData(name) {
-	name = name.replace(/(\s+)[A-Z]\.(\s+)/g, "$1"); // Remove middle initials
-	name = name.replace(/\w{2,}\./g, ""); // Remove prefixes (Dr.)
-	const original = getNamesArray(name); // Keep a copy of the original names array
-	function resetName() { // Create a copy of the original names array
-		const names = Object.assign({}, original);
-		names.last = names.last.filter(n => !n.startsWith("("));
-		return names;
-	}
-	const nameMutations = [
-		(names, i) => {
-			names.last = names.last.slice(1); // Remove a last name until there is only 1
-			if (names.last.length > 1) i--;
-			return [names, i];
-		},
-		(names, i, original) => { // If there is a preferred name (in parentheses), set that as the first name and try last name variations again
-			if (names.first != original.first) return [names, i];
-			names = resetName();
-			const firstNameReplacement = original.last.reduce((prev, curr) => curr.startsWith("(") ? curr.replace(/\((\w+)\)/g, "$1") : prev, "");
-			names.first = firstNameReplacement;
-			i = -1;
-			return [names, i];
-		}
-	]
-	let names = resetName();
-	const professorData = await new Promise(async (res, rej) => {
-		const school = await ratings.default.searchSchool("Monmouth University");
-		let teachers;
-		for (let i = 0; i < nameMutations.length; i++) {
-			const name = names.first + " " + names.last[0];
-			teachers = await ratings.default.searchTeacher(name, school[0].id).catch(err => console.log(err)); // search the RMP GraphQL API
-			if (!teachers || teachers.length == 0) {
-				[names, i] = nameMutations[i](names, i, original); // mutate the name
-				continue;
-			}
-			// console.log(teachers);
-			break;
-		}
-		if (!teachers || teachers.length == 0) return res();
-		const teacherID = (() => {
-			for (const teacher of teachers) {
-				// console.log(teacher)
-				if (teacher.school.name != "Monmouth University") continue;
-				// if (firstName && !teacher.firstName.startsWith(firstName.substring(0, 1))) continue; // If there's a first name, check that the initials match
-				return teacher;
-			}
-		})();
-		if (!teacherID) return res();
-		// console.log("Matched " + firstName + " " + (lastName || "") + " with " + teacherID.firstName + " " + teacherID.lastName);
-		const data = await ratings.default.getTeacher(teacherID.id);
-		res(data);
-	});
-	// cache.professorData[name] = professorData;
-	return professorData;
-}
+// async function getProfessorData(name) {
+// 	name = name.replace(/(\s+)[A-Z]\.(\s+)/g, "$1"); // Remove middle initials
+// 	name = name.replace(/\w{2,}\./g, ""); // Remove prefixes (Dr.)
+// 	const original = getNamesArray(name); // Keep a copy of the original names array
+// 	function resetName() { // Create a copy of the original names array
+// 		const names = Object.assign({}, original);
+// 		names.last = names.last.filter(n => !n.startsWith("("));
+// 		return names;
+// 	}
+// 	const nameMutations = [
+// 		(names, i) => {
+// 			names.last = names.last.slice(1); // Remove a last name until there is only 1
+// 			if (names.last.length > 1) i--;
+// 			return [names, i];
+// 		},
+// 		(names, i, original) => { // If there is a preferred name (in parentheses), set that as the first name and try last name variations again
+// 			if (names.first != original.first) return [names, i];
+// 			names = resetName();
+// 			const firstNameReplacement = original.last.reduce((prev, curr) => curr.startsWith("(") ? curr.replace(/\((\w+)\)/g, "$1") : prev, "");
+// 			names.first = firstNameReplacement;
+// 			i = -1;
+// 			return [names, i];
+// 		}
+// 	]
+// 	let names = resetName();
+// 	const professorData = await new Promise(async (res, rej) => {
+// 		const school = await ratings.default.searchSchool("Monmouth University");
+// 		let teachers;
+// 		for (let i = 0; i < nameMutations.length; i++) {
+// 			const name = names.first + " " + names.last[0];
+// 			teachers = await ratings.default.searchTeacher(name, school[0].id).catch(err => console.log(err)); // search the RMP GraphQL API
+// 			if (!teachers || teachers.length == 0) {
+// 				[names, i] = nameMutations[i](names, i, original); // mutate the name
+// 				continue;
+// 			}
+// 			// console.log(teachers);
+// 			break;
+// 		}
+// 		if (!teachers || teachers.length == 0) return res();
+// 		const teacherID = (() => {
+// 			for (const teacher of teachers) {
+// 				// console.log(teacher)
+// 				if (teacher.school.name != "Monmouth University") continue;
+// 				// if (firstName && !teacher.firstName.startsWith(firstName.substring(0, 1))) continue; // If there's a first name, check that the initials match
+// 				return teacher;
+// 			}
+// 		})();
+// 		if (!teacherID) return res();
+// 		// console.log("Matched " + firstName + " " + (lastName || "") + " with " + teacherID.firstName + " " + teacherID.lastName);
+// 		const data = await ratings.default.getTeacher(teacherID.id);
+// 		res(data);
+// 	});
+// 	// cache.professorData[name] = professorData;
+// 	return professorData;
+// }
 
 function parseProfessorsFromRow(page, row) {
 	return new Promise(async (res, rej) => {
