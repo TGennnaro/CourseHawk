@@ -38,6 +38,8 @@ const admin = await pb.admins.authWithPassword(process.env.PB_EMAIL, process.env
 // console.log(await getProfessorData("Lynn Kraemer-Siracusa")); // in rmp as Lynn Siracusa
 // console.log(await getProfessorData("Jennifer Har")); // in rmp as Lynn Siracusa
 
+const school = await ratings.default.searchSchool("Monmouth University");
+// console.log(await getProfessorRatings("Jing Zhou"));
 run();
 
 Array.prototype.filterMap = function (callback) {
@@ -164,8 +166,8 @@ async function run() {
 				}
 			});
 		}));
-		console.log("Finished in ", timeElapsed(start), " seconds");
 		console.log(professors);
+		console.log("Finished in ", timeElapsed(start), " seconds");
 		return res();
 	});
 }
@@ -178,8 +180,9 @@ async function getProfessorData(name, course) {
 	cache.professor[name][course] = true;
 
 	const fullName = await matchProfessor(name, course);
+	const data = await getProfessorRatings(fullName);
 
-	return fullName;
+	return { name: fullName, data };
 }
 // 		let startTime = Date.now();
 
@@ -351,61 +354,59 @@ function saveProfessor(data) {
 	});
 }
 
-// async function getProfessorData(name) {
-// 	name = name.replace(/(\s+)[A-Z]\.(\s+)/g, "$1"); // Remove middle initials
-// 	name = name.replace(/\w{2,}\./g, ""); // Remove prefixes (Dr.)
-// 	const original = getNamesArray(name); // Keep a copy of the original names array
-// 	function resetName() { // Create a copy of the original names array
-// 		const names = Object.assign({}, original);
-// 		names.last = names.last.filter(n => !n.startsWith("("));
-// 		return names;
-// 	}
-// 	const nameMutations = [
-// 		(names, i) => {
-// 			names.last = names.last.slice(1); // Remove a last name until there is only 1
-// 			if (names.last.length > 1) i--;
-// 			return [names, i];
-// 		},
-// 		(names, i, original) => { // If there is a preferred name (in parentheses), set that as the first name and try last name variations again
-// 			if (names.first != original.first) return [names, i];
-// 			names = resetName();
-// 			const firstNameReplacement = original.last.reduce((prev, curr) => curr.startsWith("(") ? curr.replace(/\((\w+)\)/g, "$1") : prev, "");
-// 			names.first = firstNameReplacement;
-// 			i = -1;
-// 			return [names, i];
-// 		}
-// 	]
-// 	let names = resetName();
-// 	const professorData = await new Promise(async (res, rej) => {
-// 		const school = await ratings.default.searchSchool("Monmouth University");
-// 		let teachers;
-// 		for (let i = 0; i < nameMutations.length; i++) {
-// 			const name = names.first + " " + names.last[0];
-// 			teachers = await ratings.default.searchTeacher(name, school[0].id).catch(err => console.log(err)); // search the RMP GraphQL API
-// 			if (!teachers || teachers.length == 0) {
-// 				[names, i] = nameMutations[i](names, i, original); // mutate the name
-// 				continue;
-// 			}
-// 			// console.log(teachers);
-// 			break;
-// 		}
-// 		if (!teachers || teachers.length == 0) return res();
-// 		const teacherID = (() => {
-// 			for (const teacher of teachers) {
-// 				// console.log(teacher)
-// 				if (teacher.school.name != "Monmouth University") continue;
-// 				// if (firstName && !teacher.firstName.startsWith(firstName.substring(0, 1))) continue; // If there's a first name, check that the initials match
-// 				return teacher;
-// 			}
-// 		})();
-// 		if (!teacherID) return res();
-// 		// console.log("Matched " + firstName + " " + (lastName || "") + " with " + teacherID.firstName + " " + teacherID.lastName);
-// 		const data = await ratings.default.getTeacher(teacherID.id);
-// 		res(data);
-// 	});
-// 	// cache.professorData[name] = professorData;
-// 	return professorData;
-// }
+async function getProfessorRatings(name) {
+	name = name.replace(/(\s+)[A-Z]\.(\s+)/g, "$1"); // Remove middle initials
+	name = name.replace(/\w{2,}\./g, ""); // Remove prefixes (Dr.)
+	const original = nameManager.objectify(name); // Keep a copy of the original names array
+	function resetName() { // Create a copy of the original names array
+		const names = Object.assign({}, original);
+		names.last = names.last.filter(n => !n.startsWith("("));
+		return names;
+	}
+	const nameMutations = [
+		(names, i) => {
+			if (names.last.length == 1) return [names, i];
+			names.last = names.last.slice(1); // Remove a last name until there is only 1
+			if (names.last.length > 1) i--; // i-- Because there are more last names to remove
+			return [names, i];
+		},
+		(names, i, original) => { // If there is a preferred name (in parentheses), set that as the first name and try last name variations again
+			if (names.first != original.first) return [names, i];
+			names = resetName();
+			const firstNameReplacement = original.last.reduce((prev, curr) => curr.startsWith("(") ? curr.replace(/\((\w+)\)/g, "$1") : prev, names.first);
+			if (firstNameReplacement == names.first) return [names, i]; // If there is no preferred name, return
+			names.first = firstNameReplacement;
+			i = -1;
+			return [names, i];
+		}
+	]
+	let names = resetName();
+	const professorData = await new Promise(async (res, rej) => {
+		let professors;
+		for (let currentMutation = 0; currentMutation < nameMutations.length; currentMutation++) {
+			const name = names.first + " " + names.last[0];
+			professors = await ratings.default.searchTeacher(name, school[0].id).catch(err => console.log(err)); // search the RMP GraphQL API
+			if (!professors || professors.length == 0) {
+				[names, currentMutation] = nameMutations[currentMutation](names, currentMutation, original); // mutate the name
+				if (Object.keys(names).length == 0) break;
+				continue;
+			}
+			break;
+		}
+		if (!professors || professors.length == 0) return res();
+		const professor = (() => {
+			for (const professor of professors) {
+				if (names.first &&
+					!professor.firstName.toLowerCase().startsWith(names.first.toLowerCase().substring(0, 1))) continue; // If there's a first name, check that the initials match
+				return professor;
+			}
+		})();
+		if (!professor) return res();
+		const data = await ratings.default.getTeacher(professor.id);
+		res(data);
+	});
+	return professorData;
+}
 
 function parseProfessorsFromRow(page, row) {
 	return new Promise(async (res, rej) => {
