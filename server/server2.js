@@ -12,9 +12,6 @@ const DEBUG_MODE = false;
 
 const cache = {
 	professor: {},
-	matchQueue: {},
-	// professorMatch: {},
-	// professorData: {},
 	courseName: {},
 	matchTime: []
 }
@@ -22,24 +19,8 @@ const limit = pLimit(8);
 
 const pb = new PocketBase("https://coursehawk-pocketbase.fly.dev");
 const admin = await pb.admins.authWithPassword(process.env.PB_EMAIL, process.env.PB_PASSWORD);
-
-// console.log(await getProfessorData("B Werther-Rosenow"));
-// console.log(await getProfessorData("Ke Sansevere"));
-// console.log(await getProfessorData("Ad Heinrich"));
-// console.log(await getProfessorData("Louis Esposito"));
-// console.log(await getProfessorData("Robert Scott III"));
-// console.log(await getProfessorData("Patrick L. O'Halloran"));
-// console.log(await getProfessorData("Felix De Jesus")); // in rmp as Felix Dejesus
-// console.log(await getProfessorData("Dr. Deanna Shoemaker")); // in rmp as Deanna Shoemaker
-// console.log(await getProfessorData("Wai Kong (Johnny) Pang")); // in rmp as Wai Kong Pang
-// console.log(await getProfessorData("Chiu-Yin (Cathy) Wong")); // in rmp as Cathy Wong
-// console.log(await getProfessorData("Carol McArthur-Amedeo")); // in rmp as Carol McArthur
-// console.log(await getProfessorData("Elizabeth Gilmartin-Keating")); // in rmp as Elizabeth Gilmartin
-// console.log(await getProfessorData("Lynn Kraemer-Siracusa")); // in rmp as Lynn Siracusa
-// console.log(await getProfessorData("Jennifer Har")); // in rmp as Lynn Siracusa
-
 const school = await ratings.default.searchSchool("Monmouth University");
-// console.log(await getProfessorRatings("Jing Zhou"));
+
 run();
 
 Array.prototype.filterMap = function (callback) {
@@ -60,7 +41,6 @@ function debug(...args) {
 }
 
 async function matchProfessor(original, course) {
-	if (cache.matchQueue[original]) return null;
 	return new Promise(async (res, rej) => {
 		course = course.replace("-", " "); // Courses are formatted as AB 100
 
