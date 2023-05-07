@@ -44,17 +44,7 @@ async function matchProfessor(original, course) {
 	return new Promise(async (res, rej) => {
 		course = course.replace("-", " "); // Courses are formatted as AB 100
 
-		const SHOULD_ADD_QUOTE = original.length < 6 && original.includes(" "); // The cutoff to when a name is considered 'short', ie. (X. Li -> X 'Li')
-		// Added %27 to add single quotes around last name. Helps with shorter names.
-		const searchQuery = original.replace(". ", "+" + (SHOULD_ADD_QUOTE ? "%27" : ""));
-		const [app, page] = await browser.navigate(`https://www.monmouth.edu/directory?s=${searchQuery}${SHOULD_ADD_QUOTE ? "%27" : ""}`);
-
-		const rawResults = await page.$$(".person-name > a"); // Cannot narrow down results, some matches are the 25th result...
-		const results = await Promise.all(rawResults.map(async result => {
-			const name = await page.evaluate(el => el.textContent, result);
-			const link = await page.evaluate(el => el.href, result);
-			return { name: name.split(",")[0], link }; // get the name and page link (in case of deep search)
-		}));
+		const results = await searchDirectory(original);
 		const filtered = results.filter(result => {
 			result.match = nameManager.match(original, result.name); // Check if the name matches
 			return (result.match > 0); // Only get the matches that are either full (2) or partial (1)
@@ -70,19 +60,17 @@ async function matchProfessor(original, course) {
 
 			if (check.length > 1 || // If there is more than one match, deep search the page for recently taught courses
 				(check.length == 1 && matchPriority == 1)) { // If there is only one match, but it is a partial match, deep search the page
-				const deepMatches = await deepSearch(check);
+				const deepMatches = await deepSearchDirectory(original, check, course);
 				if (deepMatches.length > 1) { // If there are still multiple, take the first but log to console
 					console.log(`Multiple results found for ${original} after deep search:`, deepMatches);
 				}
 				app.close();
 				if (deepMatches.length == 0 && matchPriority == 2)
 					return res(check[0].name); // If there are no matches, cache the original name
-				res(deepMatches[0]?.name || null);
-				return;
+				return res(deepMatches[0]?.name || null);
 			} else if (check.length == 1) { // If there is only 1 match, use it
 				app.close();
-				res(check[0].name);
-				return;
+				return res(check[0].name);
 			} else {
 				matchPriority--; // If there are no matches, lower the priority and try again
 			}
@@ -94,8 +82,7 @@ async function matchProfessor(original, course) {
 				const match = await matchProfessor([names.first, name].join(" "), course, true);
 				if (match) {
 					app.close();
-					res(match);
-					return;
+					return res(match);
 				}
 			}
 		}
@@ -103,30 +90,12 @@ async function matchProfessor(original, course) {
 			const match = await matchProfessor(original.replace(/([a-z])([A-Z])/g, "$1 $2"), course, true);
 			if (match) {
 				app.close();
-				res(match);
-				return;
+				return res(match);
 			}
 		}
 		// No matches at all. Return null.
 		app.close();
 		res(null);
-
-		function deepSearch(names) {
-			console.log(`Deep searching for ${original}...`);
-			return new Promise(async (res, rej) => {
-				const deepMatches = [];
-				for (const result of names) {
-					await page.goto(result.link); // Open their page and parse the data
-					const blocks = await page.$$(".wp-block-column");
-					await Promise.all(blocks.map(async block => {
-						const textContent = await page.evaluate(el => el.textContent, block);
-						// Check if the given course is in the block
-						if (textContent.includes(course) && !deepMatches.includes(result)) deepMatches.push(result);
-					}));
-				}
-				res(deepMatches);
-			});
-		}
 	});
 }
 
@@ -163,6 +132,36 @@ async function getProfessorData(name, course) {
 	const data = await getProfessorRatings(fullName);
 
 	return { name: fullName, data };
+}
+
+async function searchDirectory(name) {
+	const SHOULD_ADD_QUOTE = original.length < 6 && original.includes(" "); // The cutoff to when a name is considered 'short', ie. (X. Li -> X 'Li')
+	// Added %27 to add single quotes around last name. Helps with shorter names.
+	const searchQuery = original.replace(". ", "+" + (SHOULD_ADD_QUOTE ? "%27" : ""));
+	const [app, page] = await browser.navigate(`https://www.monmouth.edu/directory?s=${searchQuery}${SHOULD_ADD_QUOTE ? "%27" : ""}`);
+
+	const raw = await page.$$(".person-name > a"); // Cannot narrow down results, some matches are the 25th result...
+	const results = await Promise.all(raw.map(async result => {
+		const name = await page.evaluate(el => el.textContent, result);
+		const link = await page.evaluate(el => el.href, result);
+		return { name: name.split(",")[0], link }; // get the name and page link (in case of deep search)
+	}));
+	return results;
+}
+
+async function deepSearchDirectory(name, potentialMatches, course) {
+	console.log(`Deep searching for ${name}...`);
+	const deepMatches = [];
+	for (const result of potentialMatches) {
+		await page.goto(result.link); // Open their page and parse the data
+		const blocks = await page.$$(".wp-block-column");
+		await Promise.all(blocks.map(async block => {
+			const textContent = await page.evaluate(el => el.textContent, block);
+			// Check if the given course is in the block
+			if (textContent.includes(course) && !deepMatches.includes(result)) deepMatches.push(result);
+		}));
+	}
+	return deepMatches;
 }
 // 		let startTime = Date.now();
 
